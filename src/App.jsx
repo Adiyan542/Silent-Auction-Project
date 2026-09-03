@@ -255,8 +255,8 @@ const FantasyBasketballDraft = ({ onGoOnline }) => {
   if (gameState === 'lobby') return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
       <div className="bg-slate-800 p-8 rounded-2xl w-full max-w-md border border-slate-700 shadow-2xl">
-        <h1 className="text-3xl font-black text-white text-center mb-2 tracking-tighter">FANTASY DRAFT</h1>
-        <p className="text-slate-400 text-center text-sm mb-8">Auction-style fantasy basketball draft</p>
+        <h1 className="text-3xl font-black text-white text-center mb-2 tracking-tighter">SILENT BID AUCTION</h1>
+        <p className="text-slate-400 text-center text-sm mb-8">You snooze you lose!</p>
         <input
           className="w-full bg-slate-950 border border-slate-700 p-4 rounded-xl text-white mb-4 outline-none focus:ring-2 focus:ring-blue-500"
           placeholder="Enter Manager Name"
@@ -291,7 +291,7 @@ const FantasyBasketballDraft = ({ onGoOnline }) => {
         </div>
 
         <p className="text-slate-600 text-xs text-center mt-6">
-          Practice mode drafts against 11 computer-controlled managers so you can test strategy before drafting with friends.
+          A different way to draft and play with your friends.
         </p>
       </div>
     </div>
