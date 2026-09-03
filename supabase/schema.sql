@@ -36,6 +36,8 @@ create table if not exists rooms (
   tie_eligible_ids uuid[],            -- non-null while a tie redo is in progress
   tie_redo_count int not null default 0,
   results jsonb,                      -- set when status='results'; cleared when host continues
+  is_paused boolean not null default false,
+  paused_seconds_left int,
   created_at timestamptz not null default now()
 );
 

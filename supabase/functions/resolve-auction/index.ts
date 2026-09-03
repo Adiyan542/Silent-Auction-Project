@@ -60,6 +60,11 @@ Deno.serve(async (req) => {
     if (room.status !== 'bidding') {
       return json({ ok: true, skipped: 'not bidding' });
     }
+
+    if (room.is_paused) {
+      return json({ ok: true, skipped: 'auction paused' });
+    }
+
     if (!room.auction_deadline || new Date(room.auction_deadline) > new Date()) {
       return json({ ok: true, skipped: 'deadline not reached yet' });
     }

@@ -58,7 +58,16 @@ export default function OnlineDraft({ session, roomId, onExit }) {
 
   // --- Countdown + auto-resolve trigger ---
   useEffect(() => {
-    if (room?.status !== 'bidding' || !room.auction_deadline) return;
+    if (
+      room?.status !== 'bidding' ||
+      room?.is_paused ||
+      !room.auction_deadline
+    ) {
+      if (room?.is_paused) {
+        setSecondsLeft(room.paused_seconds_left ?? 0);
+      }
+      return;
+    }
     const tick = () => {
       const remaining = Math.max(0, Math.ceil((new Date(room.auction_deadline) - Date.now()) / 1000));
       setSecondsLeft(remaining);
@@ -72,7 +81,12 @@ export default function OnlineDraft({ session, roomId, onExit }) {
     tick();
     const t = setInterval(tick, 250);
     return () => clearInterval(t);
-  }, [room?.status, room?.auction_deadline]);
+  }, [
+    room?.status,
+    room?.auction_deadline,
+    room?.is_paused,
+    room?.paused_seconds_left,
+  ]);
 
   const callResolve = useCallback(async () => {
     try {
@@ -104,6 +118,42 @@ export default function OnlineDraft({ session, roomId, onExit }) {
   const rosterSize = room?.settings?.roster_size ?? 13;
   const me = participants.find((p) => p.user_id === myId);
   const isHost = room?.host_id === myId;
+
+  const pauseAuction = async () => {
+    if (!isHost || room?.status !== 'bidding' || room?.is_paused) return;
+  
+    const remaining = Math.max(
+      0,
+      Math.ceil((new Date(room.auction_deadline) - Date.now()) / 1000)
+    );
+  
+    await supabase
+      .from('rooms')
+      .update({
+        is_paused: true,
+        paused_seconds_left: remaining,
+        auction_deadline: null,
+      })
+      .eq('id', roomId);
+  };
+
+  const resumeAuction = async () => {
+    if (!isHost || room?.status !== 'bidding' || !room?.is_paused) return;
+  
+    const remaining = room.paused_seconds_left ?? 0;
+  
+    await supabase
+      .from('rooms')
+      .update({
+        is_paused: false,
+        paused_seconds_left: null,
+        auction_deadline: new Date(
+          Date.now() + remaining * 1000
+        ).toISOString(),
+      })
+      .eq('id', roomId);
+  };
+
   const myTurn = room?.status === 'nominating' && room.nominator_order[room.current_nominator_index] === myId;
   const iAmEligibleToBid = !room?.tie_eligible_ids || room.tie_eligible_ids.includes(myId);
 
@@ -155,6 +205,8 @@ export default function OnlineDraft({ session, roomId, onExit }) {
       auction_deadline: new Date(Date.now() + (room.settings.auction_time * 1000)).toISOString(),
       tie_eligible_ids: null,
       tie_redo_count: 0,
+      is_paused: false,
+      paused_seconds_left: null,
     }).eq('id', roomId);
   };
 
@@ -305,9 +357,31 @@ export default function OnlineDraft({ session, roomId, onExit }) {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-6">
               <div className="bg-slate-900 border border-slate-800 p-12 rounded-3xl text-center relative">
-                <div className="absolute top-6 right-8 text-3xl font-mono text-blue-500">{secondsLeft}s</div>
+                <div className="absolute top-6 right-8 flex items-center gap-3">
+                  <div className="text-3xl font-mono text-blue-500">
+                    {room.is_paused ? `${room.paused_seconds_left ?? secondsLeft}s` : `${secondsLeft}s`}
+                  </div>
+                  {isHost && (
+                    <button
+                      onClick={room.is_paused ? resumeAuction : pauseAuction}
+                      className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition ${
+                        room.is_paused
+                          ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                          : 'bg-yellow-500 hover:bg-yellow-400 text-black'
+                      }`}
+                    >
+                      {room.is_paused ? 'Resume' : 'Pause'}
+                    </button>
+                  )}
+                </div>
+
                 <h3 className="text-blue-500 font-bold tracking-widest uppercase mb-2">Current Bid</h3>
                 <h2 className="text-6xl font-black mb-6 tracking-tighter">{room.current_player?.name}</h2>
+                {room.is_paused && (
+                  <div className="mb-8 bg-yellow-500/10 border border-yellow-500/40 text-yellow-300 rounded-xl p-4 text-sm font-bold">
+                    Auction paused by the host
+                  </div>
+                )}
 
                 {room.tie_eligible_ids && (
                   <div className="mb-8 bg-yellow-500/10 border border-yellow-500/40 text-yellow-300 rounded-xl p-4 text-sm">
