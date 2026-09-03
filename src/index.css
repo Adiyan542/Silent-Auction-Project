@@ -1,0 +1,7 @@
+@import "tailwindcss";
+
+/* Optional: nicer font rendering */
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
