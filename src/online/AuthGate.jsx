@@ -26,15 +26,55 @@ export default function AuthGate({ children, onExit }) {
   }, []);
 
   useEffect(() => {
-    if (!session) { setProfile(null); return; }
-    supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', session.user.id)
-      .single()
-      .then(({ data }) => setProfile(data));
+    if (!session) {
+      setProfile(null);
+      return;
+    }
+  
+    const loadOrCreateProfile = async () => {
+      const { data: existingProfile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', session.user.id)
+        .maybeSingle();
+  
+      if (existingProfile) {
+        setProfile(existingProfile);
+        return;
+      }
+  
+      const fallbackName =
+        session.user.user_metadata?.display_name ||
+        session.user.email?.split('@')[0] ||
+        'Manager';
+
+      const { data: createdProfile, error: createError } = await supabase
+        .from('profiles')
+        .upsert(
+          {
+            id: session.user.id,
+            display_name: fallbackName,
+          },
+          { onConflict: 'id' }
+        )
+        .select()
+        .single();
+
+      if (createError) {
+        console.error('Could not create profile:', createError);
+        setError(createError.message);
+        return;
+      }
+
+      setProfile(createdProfile);
+    };
+    loadOrCreateProfile();
   }, [session]);
 
+  
+
+
+  
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -42,14 +82,18 @@ export default function AuthGate({ children, onExit }) {
     try {
       if (mode === 'signup') {
         if (!displayName.trim()) throw new Error('Enter a display name.');
-        const { data, error: signUpErr } = await supabase.auth.signUp({ email, password });
+
+        const { error: signUpErr } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              display_name: displayName.trim(),
+            },
+          },
+        });
+
         if (signUpErr) throw signUpErr;
-        if (data.user) {
-          const { error: profileErr } = await supabase
-            .from('profiles')
-            .insert({ id: data.user.id, display_name: displayName.trim() });
-          if (profileErr) throw profileErr;
-        }
       } else {
         const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password });
         if (signInErr) throw signInErr;
