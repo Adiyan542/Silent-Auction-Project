@@ -65,29 +65,6 @@ Deno.serve(async (req) => {
       return json({ ok: true, skipped: 'auction paused' });
     }
 
-    if (!room.auction_deadline || new Date(room.auction_deadline) > new Date()) {
-      return json({ ok: true, skipped: 'deadline not reached yet' });
-    }
-
-    const deadlineToClaim = room.auction_deadline;
-
-    const { data: claimed, error: claimErr } = await supabase
-      .from('rooms')
-      .update({ auction_deadline: null })
-      .eq('id', room_id)
-      .eq('status', 'bidding')
-      .eq('auction_deadline', deadlineToClaim)
-      .select('id');
-
-    if (claimErr) {
-      return json({ error: claimErr.message }, 500);
-    }
-
-    if (!claimed || claimed.length === 0) {
-      return json({ ok: true, skipped: 'already resolving' });
-    }
-
-
     const rosterSize = room.settings?.roster_size ?? ROSTER_SIZE_DEFAULT;
     const currentPlayer = room.current_player;
     if (!currentPlayer) return json({ error: 'no current_player on room' }, 400);
@@ -98,7 +75,7 @@ Deno.serve(async (req) => {
       .eq('room_id', room_id);
     if (partErr) return json({ error: partErr.message }, 500);
 
-    const roundKey = `${currentPlayer.id}_${room.tie_redo_count}`;
+    const roundKey = `${currentPlayer.auction_id}_${room.tie_redo_count}`;
     const { data: bidRows, error: bidErr } = await supabase
       .from('bids')
       .select('*')
@@ -115,6 +92,58 @@ Deno.serve(async (req) => {
     };
 
     const eligibleIds: string[] | null = room.tie_eligible_ids ?? null;
+
+    const eligibleParticipants = participants.filter((p) => {
+      const slotsLeft = rosterSize - (p.roster?.length ?? 0);
+      const maxPossible = getMaxBid(p);
+    
+      return (
+        slotsLeft > 0 &&
+        maxPossible >= 1 &&
+        (!eligibleIds || eligibleIds.includes(p.user_id))
+      );
+    });
+    
+    const allResponded =
+      eligibleParticipants.length > 0 &&
+      eligibleParticipants.every((p) => bidByUser.has(p.user_id));
+    
+    const deadlineExpired =
+      !!room.auction_deadline &&
+      new Date(room.auction_deadline) <= new Date();
+    
+    // Keep waiting if the timer is still running and
+    // at least one eligible player has not responded.
+    if (!deadlineExpired && !allResponded) {
+      return json({
+        ok: true,
+        skipped: 'waiting for remaining bidders',
+      });
+    }
+    
+    // The timer expired OR everybody responded.
+    // Claim the auction so only one request can resolve it.
+    const deadlineToClaim = room.auction_deadline;
+    
+    const { data: claimed, error: claimErr } = await supabase
+      .from('rooms')
+      .update({ auction_deadline: null })
+      .eq('id', room_id)
+      .eq('status', 'bidding')
+      .eq('is_paused', false)
+      .eq('auction_deadline', deadlineToClaim)
+      .select('id');
+    
+    if (claimErr) {
+      return json({ error: claimErr.message }, 500);
+    }
+    
+    if (!claimed || claimed.length === 0) {
+      return json({
+        ok: true,
+        skipped: 'already resolving',
+      });
+    }
 
     const resolved = participants.map((p) => {
       const slotsLeft = rosterSize - (p.roster?.length ?? 0);

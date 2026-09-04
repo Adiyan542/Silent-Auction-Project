@@ -76,6 +76,16 @@ export default function OnlineDraft({ session, roomId, onExit }) {
         // Safe to call from every client — the function only actually
         // resolves once, whoever's request lands first.
         callResolve();
+
+        supabase
+          .from('rooms')
+          .select('*')
+          .eq('id', roomId)
+          .single()
+          .then(({ data }) => {
+            if (data) setRoom(data);
+          });
+          
       }
     };
     tick();
@@ -99,6 +109,18 @@ export default function OnlineDraft({ session, roomId, onExit }) {
         setResolveError(data.error);
       } else {
         setResolveError(null);
+
+        const { data: freshRoom, error: refreshError } = await supabase
+          .from('rooms')
+          .select('*')
+          .eq('id', roomId)
+          .single();
+
+        if (!refreshError && freshRoom) {
+          setRoom(freshRoom);
+        }
+        
+
       }
     } catch (err) {
       // This means the call itself couldn't be made at all — e.g. the
@@ -200,7 +222,7 @@ export default function OnlineDraft({ session, roomId, onExit }) {
     }
 
     await supabase.from('rooms').update({
-      current_player: { id: player.id, name: player.name, rating: player.rating },
+      current_player: { id: player.id, name: player.name, rating: player.rating, auction_id: `${Date.now()}_${Math.random().toString(36).slice(2)}`, },
       status: 'bidding',
       auction_deadline: new Date(Date.now() + (room.settings.auction_time * 1000)).toISOString(),
       tie_eligible_ids: null,
@@ -212,13 +234,36 @@ export default function OnlineDraft({ session, roomId, onExit }) {
 
   const submitBid = async () => {
     const amount = parseInt(myBid) || 0;
-    const roundKey = `${room.current_player.id}_${room.tie_redo_count}`;
+    const roundKey = `${room.current_player.auction_id}_${room.tie_redo_count}`;
     const { error: bidErr } = await supabase.from('bids').upsert(
       { room_id: roomId, round_key: roundKey, user_id: myId, amount },
       { onConflict: 'room_id,round_key,user_id' }
     );
     if (bidErr) { setError(bidErr.message); return; }
     setHasSubmittedBid(true);
+    callResolve();
+  };
+
+  const passBid = async () => {
+    const roundKey = `${room.current_player.auction_id}_${room.tie_redo_count}`;
+
+    const { error: bidErr } = await supabase.from('bids').upsert(
+      {
+        room_id: roomId,
+        round_key: roundKey,
+        user_id: myId,
+        amount: 0,
+      },
+      { onConflict: 'room_id,round_key,user_id' }
+    );
+
+    if (bidErr) {
+      setError(bidErr.message);
+      return;
+    }
+    setMyBid('0');
+    setHasSubmittedBid(true);
+    callResolve();
   };
 
   // Host-only: leaves the results screen and moves to the next nominator
@@ -318,12 +363,17 @@ export default function OnlineDraft({ session, roomId, onExit }) {
             {availablePlayers
               .filter((p) => p.name.toLowerCase().includes(searchTerm.toLowerCase()))
               .map((player) => (
-                <div key={player.id} className="bg-slate-800 p-4 rounded-xl border border-slate-700 flex justify-between items-center group hover:border-blue-500 transition">
+                <button
+                  key={player.id}
+                  type="button"
+                  onClick={() => nominatePlayer(player)}
+                  className="w-full bg-slate-800 p-4 rounded-xl border border-slate-700 flex justify-between items-center group hover:border-blue-500 active:border-blue-400 transition text-left touch-manipulation"
+                >
                   <h4 className="text-white font-bold text-lg">{player.name}</h4>
-                  <button onClick={() => nominatePlayer(player)} className="p-2 bg-blue-600 rounded-lg text-white opacity-0 group-hover:opacity-100 transition">
+                  <span className="p-2 bg-blue-600 rounded-lg text-white opacity-100 md:opacity-0 md:group-hover:opacity-100 transition">
                     <PlusCircle />
-                  </button>
-                </div>
+                  </span>
+                </button>
               ))}
           </div>
         </div>
@@ -435,8 +485,15 @@ export default function OnlineDraft({ session, roomId, onExit }) {
                         disabled={!myBid || parseInt(myBid) < 1 || parseInt(myBid) > maxBid}
                         className="bg-blue-600 px-6 rounded-xl font-bold hover:bg-blue-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
                       >SUBMIT</button>
+
+                      <button
+                        onClick={passBid}
+                        className="bg-slate-700 px-4 rounded-xl font-bold hover:bg-slate-600 transition"
+                      >
+                        PASS 
+                      </button>
                     </div>
-                    <p className="text-slate-600 text-xs mt-3">Minimum bid is $1 — every player gets sold.</p>
+                    <p className="text-slate-600 text-xs mt-3">Minimum bid is $1, or pass if you do not want to bid.</p>
                   </>
                 ) : (
                   <div className="text-emerald-400 font-bold text-xl">BID LOCKED: ${myBid}</div>
