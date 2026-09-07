@@ -3,7 +3,7 @@ import { Trophy, Search, PlusCircle, Copy } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { NBA_PLAYERS } from '../data/players';
 import { PandorasBoxIcon } from '../components/PandorasBoxIcon';
-
+import YourLineup from '../components/YourLineup';
 
 const PANDORA_ELIGIBLE_AFTER = 12;
 const PANDORA_FORCE_AT = 20;
@@ -23,6 +23,7 @@ export default function OnlineDraft({ session, roomId, onExit }) {
   const [secondsLeft, setSecondsLeft] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [error, setError] = useState('');
+  const [showMyLineup, setShowMyLineup] = useState(false);
 
 
   // --- Initial load + realtime subscriptions ---
@@ -227,7 +228,7 @@ export default function OnlineDraft({ session, roomId, onExit }) {
 
     if (allCappedAtOne) {
       const winner = eligible.find((p) => p.user_id === myId) || eligible[0];
-      const newRoster = [...(winner.roster ?? []), { id: player.id, name: player.name, rating: player.rating, cost: 1 }];
+      const newRoster = [...(winner.roster ?? []), { id: player.id, name: player.name, rating: player.rating, positions: player.positions ?? [], cost: 1 }];
       await supabase.from('room_participants').update({ budget: winner.budget - 1, roster: newRoster })
         .eq('room_id', roomId).eq('user_id', winner.user_id);
 
@@ -241,7 +242,7 @@ export default function OnlineDraft({ session, roomId, onExit }) {
     }
 
     await supabase.from('rooms').update({
-      current_player: { id: player.id, name: player.name, rating: player.rating, auction_id: `${Date.now()}_${Math.random().toString(36).slice(2)}`, },
+      current_player: { id: player.id, name: player.name, rating: player.rating, positions: player.positions ?? [], auction_id: `${Date.now()}_${Math.random().toString(36).slice(2)}`, },
       status: 'bidding',
       auction_deadline: new Date(Date.now() + (room.settings.auction_time * 1000)).toISOString(),
       tie_eligible_ids: null,
@@ -503,9 +504,39 @@ export default function OnlineDraft({ session, roomId, onExit }) {
               </div>
             </div>
           )}
+          <div className="lg:hidden mb-4">
+            <button
+              type="button"
+              onClick={() => setShowMyLineup((prev) => !prev)}
+              className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 flex items-center justify-between"
+            >
+              <span className="text-white font-bold text-sm">
+                MY LINEUP
+              </span>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 space-y-6">
+              <span className="text-slate-400 text-sm">
+                {(me.roster?.length ?? 0)}/13 {showMyLineup ? '▲' : '▼'}
+              </span>
+            </button>
+
+            {showMyLineup && (
+              <div className="mt-3">
+                <YourLineup
+                  roster={me.roster ?? []}
+                  budget={me.budget}
+                />
+              </div>
+            )}
+          </div>
+          
+          <div className="grid grid-cols-1 lg:grid-cols-[1.35fr_2fr_1fr] gap-6">
+            <div className="hidden lg:block">
+              <YourLineup
+                roster={me.roster ?? []}
+                budget={me.budget}
+              />
+            </div>
+            <div className="space-y-6">
               <div className="bg-slate-900 border border-slate-800 p-12 rounded-3xl text-center relative">
                 <div className="absolute top-6 right-8 flex items-center gap-3">
                   <div className="text-3xl font-mono text-blue-500">
@@ -526,7 +557,7 @@ export default function OnlineDraft({ session, roomId, onExit }) {
                 </div>
 
                 <h3 className="text-blue-500 font-bold tracking-widest uppercase mb-2">Current Bid</h3>
-                <h2 className="text-6xl font-black mb-6 tracking-tighter">{room.current_player?.name}</h2>
+                <h2 className={`font-black mb-6 tracking-tighter break-words ${(room.current_player?.name?.length ?? 0) > 18 ? 'text-3xl sm:text-4xl lg:text-5xl' : 'text-4xl sm:text-5xl lg:text-6xl'}`}>{room.current_player?.name}</h2>
                 {room.is_paused && (
                   <div className="mb-8 bg-yellow-500/10 border border-yellow-500/40 text-yellow-300 rounded-xl p-4 text-sm font-bold">
                     Auction paused by the host
@@ -650,8 +681,39 @@ export default function OnlineDraft({ session, roomId, onExit }) {
             </div>
           )}
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 space-y-6">
+          <div className="lg:hidden mb-4">
+            <button
+              type="button"
+              onClick={() => setShowMyLineup((prev) => !prev)}
+              className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 flex items-center justify-between"
+            >
+              <span className="text-white font-bold text-sm">
+                MY LINEUP
+              </span>
+
+              <span className="text-slate-400 text-sm">
+                {(me.roster?.length ?? 0)}/13 {showMyLineup ? '▲' : '▼'}
+              </span>
+            </button>
+
+            {showMyLineup && (
+              <div className="mt-3">
+                <YourLineup
+                  roster={me.roster ?? []}
+                  budget={me.budget}
+                />
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-[1.35fr_2fr_1fr] gap-6">
+            <div className="hidden lg:block">
+              <YourLineup
+                roster={me.roster ?? []}
+                budget={me.budget}
+              />
+            </div>
+            <div className="space-y-6">
               <div className="bg-slate-900 border-2 border-yellow-500/50 p-12 rounded-3xl text-center">
               {!r.isPandora && (
                 <Trophy className="mx-auto text-yellow-400 mb-4" size={48} />
@@ -673,9 +735,13 @@ export default function OnlineDraft({ session, roomId, onExit }) {
 
 
                     <h2
-                    className={`text-4xl font-black mb-2 ${
-                      r.winnerUserId === myId ? 'text-blue-400' : ''
-                    }`}
+                      className={`font-black mb-2 break-words ${
+                        (r.winnerName?.length ?? 0) > 14
+                          ? 'text-2xl sm:text-3xl lg:text-4xl'
+                          : 'text-4xl'
+                      } ${
+                        r.winnerUserId === myId ? 'text-blue-400' : ''
+                      }`}
                     >
                       {r.winnerName}
                       {r.winnerUserId === myId && ' (You)'}
@@ -727,7 +793,11 @@ export default function OnlineDraft({ session, roomId, onExit }) {
 
                   <>
                     <h2
-                      className={`text-4xl font-black mb-2 ${
+                      className={`font-black mb-2 break-words ${
+                        (r.winnerName?.length ?? 0) > 14
+                          ? 'text-2xl sm:text-3xl lg:text-4xl'
+                          : 'text-4xl'
+                      } ${
                         r.winnerUserId === myId ? 'text-blue-400' : ''
                       }`}
                     >

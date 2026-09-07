@@ -145,9 +145,21 @@ Deno.serve(async (req) => {
       );
     });
     
+    // Pandora still waits for every active manager to press PASS,
+    // even if their max bid is $0.
+    const expectedResponders = isPandora
+      ? participants.filter((p) => {
+          const slotsLeft = rosterSize - (p.roster?.length ?? 0);
+    
+          return (
+            slotsLeft > 0 &&
+            (!eligibleIds || eligibleIds.includes(p.user_id))
+          );
+        })
+      : eligibleParticipants;
+    
     const allResponded =
-      eligibleParticipants.length > 0 &&
-      eligibleParticipants.every((p) => bidByUser.has(p.user_id));
+      expectedResponders.every((p) => bidByUser.has(p.user_id));
     
     const deadlineExpired =
       !!room.auction_deadline &&
@@ -371,7 +383,7 @@ Deno.serve(async (req) => {
 
     const newRoster = [
       ...(winner.roster ?? []),
-      { id: currentPlayer.id, name: currentPlayer.name, rating: currentPlayer.rating, cost: amount },
+      { id: currentPlayer.id, name: currentPlayer.name, rating: currentPlayer.rating, positions: currentPlayer.positions ?? [], cost: amount },
     ];
 
     // Budget/roster update immediately — no reason to make everyone wait
