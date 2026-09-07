@@ -11,6 +11,8 @@ export default function OnlineLobby({ session, profile, onEnterRoom, onExit }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
+  const [pandoraEnabled, setPandoraEnabled] = useState(false);
+
   const createRoom = async () => {
     setBusy(true);
     setError('');
@@ -18,7 +20,7 @@ export default function OnlineLobby({ session, profile, onEnterRoom, onExit }) {
       const room_code = genRoomCode();
       const { data: room, error: roomErr } = await supabase
         .from('rooms')
-        .insert({ room_code, host_id: session.user.id })
+        .insert({ room_code, host_id: session.user.id, pandora_enabled: pandoraEnabled, })
         .select()
         .single();
       if (roomErr) throw roomErr;
@@ -83,6 +85,22 @@ export default function OnlineLobby({ session, profile, onEnterRoom, onExit }) {
         <h1 className="text-2xl font-black text-white mb-1">Online Draft</h1>
         <p className="text-slate-400 text-sm mb-6">Signed in as {profile.display_name}</p>
 
+        <label className="flex items-center justify-between bg-slate-900 border border-slate-700 rounded-xl p-4 mb-4 cursor-pointer">
+          <div className="pr-4">
+            <p className="text-white font-bold text-sm">Pandora's Box</p>
+            <p className="text-slate-500 text-xs">
+              Enable a rare one time mystery auction that can increase or decrease the winner's budget.
+            </p>
+          </div>
+
+          <input
+            type="checkbox"
+            checked={pandoraEnabled}
+            onChange={(e) => setPandoraEnabled(e.target.checked)}
+            className="w-5 h-5 accent-purple-500 shrink-0"
+          />
+        </label>
+        
         <button
           onClick={createRoom}
           disabled={busy}

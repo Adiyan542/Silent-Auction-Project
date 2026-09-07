@@ -2,6 +2,12 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Trophy, Search, PlusCircle, Copy } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { NBA_PLAYERS } from '../data/players';
+import { PandorasBoxIcon } from '../components/PandorasBoxIcon';
+
+
+const PANDORA_ELIGIBLE_AFTER = 12;
+const PANDORA_FORCE_AT = 20;
+const PANDORA_APPEAR_CHANCE = 0.2;
 
 // Renders the full online draft room: waiting lobby, nominating, bidding,
 // and complete states — all driven by realtime updates from Supabase rather
@@ -17,6 +23,7 @@ export default function OnlineDraft({ session, roomId, onExit }) {
   const [secondsLeft, setSecondsLeft] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [error, setError] = useState('');
+
 
   // --- Initial load + realtime subscriptions ---
   useEffect(() => {
@@ -181,7 +188,19 @@ export default function OnlineDraft({ session, roomId, onExit }) {
 
   const getMaxBid = (p) => {
     const slotsLeft = rosterSize - (p.roster?.length ?? 0);
+  
     if (slotsLeft <= 0) return 0;
+  
+    const isPandora = room?.current_player?.isPandora === true;
+  
+    if (isPandora) {
+      // Pandora does not fill a roster spot,
+      // so keep $1 reserved for every remaining slot.
+      return Math.max(0, p.budget - slotsLeft);
+    }
+  
+    // Normal player fills one roster spot,
+    // so only the OTHER remaining slots need $1 reserved.
     return Math.max(0, p.budget - (slotsLeft - 1));
   };
 
@@ -232,6 +251,34 @@ export default function OnlineDraft({ session, roomId, onExit }) {
     }).eq('id', roomId);
   };
 
+  const nominatePandorasBox = async () => {
+    setError('');
+  
+    const { error: pandoraErr } = await supabase
+      .from('rooms')
+      .update({
+        current_player: {
+          id: 'pandora',
+          name: "Pandora's Box",
+          isPandora: true,
+          auction_id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+        },
+        status: 'bidding',
+        auction_deadline: new Date(
+          Date.now() + room.settings.auction_time * 1000
+        ).toISOString(),
+        tie_eligible_ids: null,
+        tie_redo_count: 0,
+        is_paused: false,
+        paused_seconds_left: null,
+      })
+      .eq('id', roomId);
+  
+    if (pandoraErr) {
+      setError(pandoraErr.message);
+    }
+  };
+
   const submitBid = async () => {
     const amount = parseInt(myBid) || 0;
     const roundKey = `${room.current_player.auction_id}_${room.tie_redo_count}`;
@@ -271,21 +318,50 @@ export default function OnlineDraft({ session, roomId, onExit }) {
   // literally everyone's full. Nothing auto-advances into this — it only
   // happens when the host clicks Continue.
   const advanceToNextNomination = async () => {
-    const order = room.nominator_order;
-    let idx = (room.current_nominator_index + 1) % order.length;
-    let done = true;
-    for (let i = 0; i < order.length; i++) {
-      const p = participants.find((pp) => pp.user_id === order[idx]);
-      if (p && (p.roster?.length ?? 0) < rosterSize) { done = false; break; }
-      idx = (idx + 1) % order.length;
+  const order = room.nominator_order;
+
+  let idx = (room.current_nominator_index + 1) % order.length;
+
+  let done = true;
+
+  for (let i = 0; i < order.length; i++) {
+    const p = participants.find((pp) => pp.user_id === order[idx]);
+
+    if (p && (p.roster?.length ?? 0) < rosterSize) {
+      done = false;
+      break;
     }
-    await supabase.from('rooms').update({
-      current_player: null,
-      results: null,
-      current_nominator_index: idx,
-      status: done ? 'complete' : 'nominating',
-    }).eq('id', roomId);
-  };
+
+    idx = (idx + 1) % order.length;
+  }
+
+  const completedCount = (room.completed_auction_count ?? 0) + 1;
+
+  const pandoraEligible =
+    room.pandora_enabled &&
+    !room.pandora_used &&
+    !room.pandora_available &&
+    completedCount >= PANDORA_ELIGIBLE_AFTER;
+
+  const shouldMakePandoraAvailable =
+    pandoraEligible &&
+    (
+      completedCount >= PANDORA_FORCE_AT ||
+      Math.random() < PANDORA_APPEAR_CHANCE
+    );
+
+  await supabase.from('rooms').update({
+    current_player: null,
+    results: null,
+    current_nominator_index: idx,
+    status: done ? 'complete' : 'nominating',
+    completed_auction_count: completedCount,
+
+    ...(shouldMakePandoraAvailable
+      ? { pandora_available: true }
+      : {}),
+  }).eq('id', roomId);
+};
 
   const copyRoomCode = () => navigator.clipboard.writeText(room.room_code);
 
@@ -360,6 +436,30 @@ export default function OnlineDraft({ session, roomId, onExit }) {
             </div>
           </header>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+            {room.pandora_available && !room.pandora_used &&(
+              <button
+                type="button"
+                onClick={nominatePandorasBox}
+                className="w-full bg-gradient-to-br from-purple-900 to-slate-800 p-5 rounded-xl border-2 border-purple-500 flex justify-between items-center hover:border-purple-300 active:border-purple-200 transition text-left md:col-span-2"
+              >
+                <div className="flex items-center gap-4">
+                  <PandorasBoxIcon className="w-20 h-20 shrink-0" />
+
+                  <div>
+                    <h4 className="text-white font-black text-xl">
+                      Pandora's Box
+                    </h4>
+                    <p className="text-purple-300 text-sm mt-1">
+                      The winner pays their bid and gambles for a random budget reward or punishment.
+                    </p>
+                  </div>
+                </div>
+
+                <PlusCircle className="text-purple-300 shrink-0 ml-4" />
+              </button>
+            )}
+
             {availablePlayers
               .filter((p) => p.name.toLowerCase().includes(searchTerm.toLowerCase()))
               .map((player) => (
@@ -553,28 +653,111 @@ export default function OnlineDraft({ session, roomId, onExit }) {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-6">
               <div className="bg-slate-900 border-2 border-yellow-500/50 p-12 rounded-3xl text-center">
+              {!r.isPandora && (
                 <Trophy className="mx-auto text-yellow-400 mb-4" size={48} />
-                {r.noSale ? (
+              )}
+                {r.isPandora && r.noSale ? (
                   <>
-                    <h2 className="text-3xl font-black mb-2">No Sale</h2>
-                    <p className="text-slate-400 mb-6">Nobody had budget or roster room to bid on {r.playerName}.</p>
+                    <PandorasBoxIcon className="w-24 h-24 mx-auto mb-4" />
+                    <h2 className="text-3xl font-black mb-2">
+                      Pandora's Box Goes Unopened
+                    </h2>
+
+                    <p className="text-slate-400 mb-6">
+                      Nobody bid on it, so it remains available for a future nomination.
+                    </p>
+                  </>
+                ) : r.isPandora ? (
+                  <>
+                    <PandorasBoxIcon className="w-24 h-24 mx-auto mb-4" />
+
+
+                    <h2
+                    className={`text-4xl font-black mb-2 ${
+                      r.winnerUserId === myId ? 'text-blue-400' : ''
+                    }`}
+                    >
+                      {r.winnerName}
+                      {r.winnerUserId === myId && ' (You)'}
+                    </h2>
+
+                    <p className="text-2xl text-slate-400 mb-2">
+                      Paid{' '}
+                      <span className="text-white font-black">
+                        ${r.amount}
+                      </span>{' '}
+                      for Pandora's Box
+                    </p>
+
+
+                    <p
+                      className={`text-3xl font-black mb-2 ${
+                        r.appliedAmount >= 0
+                          ? 'text-emerald-400'
+                          : 'text-red-400'
+                      }`}
+                    >
+                      {r.appliedAmount >= 0 ? '+' : ''}
+                      {r.appliedAmount} budget
+                    </p>
+
+                    <p className="text-slate-500 text-sm mb-4">
+                      Final budget: ${r.finalBudget}
+                    </p>
+
+                    {r.wasClamped && (
+                      <p className="text-yellow-400/80 text-xs mb-4">
+                        Pandora rolled {r.gambleAmount >= 0 ? '+' : ''}
+                        {r.gambleAmount}, but the budget was protected at the minimum needed to fill the remaining roster.
+                       </p>
+                    
+                    )}
+                  </>
+                ) : r.noSale ? (
+                  <>
+                    <h2 className="text-3xl font-black mb-2">
+                      No Sale
+                    </h2>
+                
+                    <p className="text-slate-400 mb-6">
+                      Nobody had budget or roster room to bid on {r.playerName}.
+                    </p>
                   </>
                 ) : (
+
                   <>
-                    <h2 className={`text-4xl font-black mb-2 ${r.winnerUserId === myId ? 'text-blue-400' : ''}`}>
-                      {r.winnerName}{r.winnerUserId === myId && ' (You)'}
+                    <h2
+                      className={`text-4xl font-black mb-2 ${
+                        r.winnerUserId === myId ? 'text-blue-400' : ''
+                      }`}
+                    >
+                      {r.winnerName}
+                      {r.winnerUserId === myId && ' (You)'}
                     </h2>
+
+
                     <p className="text-2xl text-slate-400 mb-2">
-                      Won {r.playerName} for <span className="text-white font-black">${r.amount}</span>
+                      Won {r.playerName} for{' '}
+                      <span className="text-white font-black">
+                        ${r.amount}
+                      </span>
                     </p>
+
+
                     {r.wasCoinFlip && (
-                      <p className="text-yellow-400/80 text-xs mb-4">Still tied after several redos — broken with a coin flip.</p>
+                      <p className="text-yellow-400/80 text-xs mb-4">
+                        Still tied after several redos — broken with a coin flip.
+                      </p>
                     )}
+
                     {r.autoAwarded && (
-                      <p className="text-blue-400/80 text-xs mb-4">Everyone left was capped at $1 — auto-awarded to the nominator, no bidding war needed.</p>
+                      <p className="text-blue-400/80 text-xs mb-4">
+                        Everyone left was capped at $1 — autoawarded to the nominator, no bidding war needed.
+                      </p>
                     )}
                   </>
                 )}
+
 
                 {r.allBids?.length > 0 && (
                   <div className="max-w-md mx-auto bg-slate-950 rounded-xl p-4 mb-6 max-h-64 overflow-y-auto">

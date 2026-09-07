@@ -38,6 +38,12 @@ create table if not exists rooms (
   results jsonb,                      -- set when status='results'; cleared when host continues
   is_paused boolean not null default false,
   paused_seconds_left int,
+
+  pandora_enabled boolean not null default false,
+  pandora_available boolean not null default false,
+  pandora_used boolean not null default false,
+  completed_auction_count int not null default 0,
+
   created_at timestamptz not null default now()
 );
 

@@ -24,6 +24,39 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 const ROSTER_SIZE_DEFAULT = 13;
 const MAX_TIE_REDOS = 3;
 
+
+function rollPandoraOutcome(): number {
+  const outcomes = [
+    { amount: 25, weight: 8 },
+    { amount: 15, weight: 10 },
+    { amount: 10, weight: 12 },
+
+    { amount: -5, weight: 20 },
+    { amount: -10, weight: 20 },
+    { amount: -15, weight: 15 },
+    { amount: -20, weight: 10 },
+    { amount: -25, weight: 5 },
+  ];
+
+  const totalWeight = outcomes.reduce(
+    (sum, outcome) => sum + outcome.weight,
+    0
+  );
+
+  let roll = Math.random() * totalWeight;
+
+  for (const outcome of outcomes) {
+    if (roll < outcome.weight) {
+      return outcome.amount;
+    }
+
+    roll -= outcome.weight;
+  }
+
+  return outcomes[outcomes.length - 1].amount;
+}
+
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -85,9 +118,17 @@ Deno.serve(async (req) => {
 
     const bidByUser = new Map(bidRows.map((b) => [b.user_id, b.amount]));
 
+    const isPandora = currentPlayer.isPandora === true;
+
     const getMaxBid = (p: any) => {
       const slotsLeft = rosterSize - (p.roster?.length ?? 0);
+
       if (slotsLeft <= 0) return 0;
+
+      if (isPandora) {
+        return Math.max(0, p.budget - slotsLeft);
+      }
+
       return Math.max(0, p.budget - (slotsLeft - 1));
     };
 
@@ -172,13 +213,40 @@ Deno.serve(async (req) => {
           auction_deadline: null,
           tie_eligible_ids: null,
           tie_redo_count: 0,
+    
+          // If Pandora gets no bids, keep it available for later.
+          ...(isPandora
+            ? {
+                pandora_available: true,
+                pandora_used: false,
+              }
+            : {}),
+    
           status: 'results',
-          results: { noSale: true, playerName: currentPlayer.name },
+    
+          results: isPandora
+            ? {
+                isPandora: true,
+                noSale: true,
+                playerName: "Pandora's Box",
+              }
+            : {
+                noSale: true,
+                playerName: currentPlayer.name,
+              },
         })
         .eq('id', room_id)
-        .eq('status', 'bidding'); // guards against double-resolution
-      if (error) return json({ error: error.message }, 500);
-      return json({ ok: true, noSale: true });
+        .eq('status', 'bidding');
+    
+      if (error) {
+        return json({ error: error.message }, 500);
+      }
+    
+      return json({
+        ok: true,
+        noSale: true,
+        pandora: isPandora,
+      });
     }
 
     const tiedTop = eligibleBids.filter((b) => b.bid === topBid.bid);
@@ -210,6 +278,97 @@ Deno.serve(async (req) => {
     const winner = winnerEntry.participant;
     const amount = winnerEntry.bid;
 
+    const allBids = resolved
+      .filter((r) => r.eligible)
+      .map((r) => ({
+        name: r.participant.display_name,
+        userId: r.participant.user_id,
+        bid: r.bid,
+      }))
+      .sort((a, b) => b.bid - a.bid);
+
+    if (isPandora) {
+      const slotsLeft = rosterSize - (winner.roster?.length ?? 0);
+      const gambleAmount = rollPandoraOutcome();
+      const budgetAfterBid = winner.budget - amount;
+      const safeFloor = slotsLeft;
+
+      const newBudget = Math.max(
+        safeFloor,
+        budgetAfterBid + gambleAmount
+      );
+
+      const appliedAmount = newBudget - budgetAfterBid;
+      const wasClamped = appliedAmount !== gambleAmount;
+
+      const { error: updatePandoraWinnerErr } = await supabase
+        .from('room_participants')
+        .update({
+          budget: newBudget,
+        })
+        .eq('room_id', room_id)
+        .eq('user_id', winner.user_id);
+
+      if (updatePandoraWinnerErr) {
+        return json({ error: updatePandoraWinnerErr.message }, 500);
+      }
+
+      const pandoraLogEntry = {
+        id: `pandora_${Date.now()}`,
+        playerName: "Pandora's Box",
+        amount,
+        winnerName: winner.display_name,
+        winnerUserId: winner.user_id,
+        isPandora: true,
+        gambleAmount,
+        appliedAmount,
+        wasClamped,
+      };
+
+      const { error: updatePandoraRoomErr } = await supabase
+        .from('rooms')
+        .update({
+          auction_deadline: null,
+          tie_eligible_ids: null,
+          tie_redo_count: 0,
+          pandora_used: true,
+          pandora_available: false,
+          draft_log: [
+            pandoraLogEntry,
+            ...(room.draft_log ?? []),
+          ],
+          status: 'results',
+          results: {
+            isPandora: true,
+            playerName: "Pandora's Box",
+            winnerName: winner.display_name,
+            winnerUserId: winner.user_id,
+            amount,
+            gambleAmount,
+            appliedAmount,
+            wasClamped,
+            finalBudget: newBudget,
+            allBids,
+          },
+        })
+        .eq('id', room_id)
+        .eq('status', 'bidding');
+
+      if (updatePandoraRoomErr) {
+        return json({ error: updatePandoraRoomErr.message }, 500);
+      }
+
+      return json({
+        ok: true,
+        pandora: true,
+        winner: winner.user_id,
+        amount,
+        gambleAmount,
+        appliedAmount,
+        finalBudget: newBudget,
+      });
+    }
+
     const newRoster = [
       ...(winner.roster ?? []),
       { id: currentPlayer.id, name: currentPlayer.name, rating: currentPlayer.rating, cost: amount },
@@ -233,12 +392,6 @@ Deno.serve(async (req) => {
       wasCoinFlip: tiedTop.length > 1,
     };
 
-    // Everyone who could still bid, sorted highest-first, for the "all
-    // bids" breakdown on the results screen.
-    const allBids = resolved
-      .filter((r) => r.eligible)
-      .map((r) => ({ name: r.participant.display_name, userId: r.participant.user_id, bid: r.bid }))
-      .sort((a, b) => b.bid - a.bid);
 
     // Parked on 'results' — current_player and current_nominator_index are
     // left as-is on purpose; the host's Continue click (a plain client-side
