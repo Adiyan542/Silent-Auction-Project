@@ -4,6 +4,9 @@ import { supabase } from '../lib/supabaseClient';
 import { NBA_PLAYERS } from '../data/players';
 import { PandorasBoxIcon } from '../components/PandorasBoxIcon';
 import YourLineup from '../components/YourLineup';
+import { AlarmClockTimer } from '../components/AlarmClockTimer';
+import BouncingBasketball from '../components/BouncingBasketball';
+
 
 const PANDORA_ELIGIBLE_AFTER = 12;
 const PANDORA_FORCE_AT = 20;
@@ -538,26 +541,49 @@ export default function OnlineDraft({ session, roomId, onExit }) {
             </div>
             <div className="space-y-6">
               <div className="bg-slate-900 border border-slate-800 p-12 rounded-3xl text-center relative">
-                <div className="absolute top-6 right-8 flex items-center gap-3">
-                  <div className="text-3xl font-mono text-blue-500">
-                    {room.is_paused ? `${room.paused_seconds_left ?? secondsLeft}s` : `${secondsLeft}s`}
-                  </div>
+                <div className="flex flex-col items-end gap-1 sm:gap-2 mb-2">
+                  <AlarmClockTimer
+                    secondsLeft={
+                      room.is_paused
+                        ? room.paused_seconds_left ?? secondsLeft
+                        : secondsLeft
+                    }
+                    totalSeconds={room.settings.auction_time}
+                  />
+
                   {isHost && (
                     <button
                       onClick={room.is_paused ? resumeAuction : pauseAuction}
-                      className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition ${
-                        room.is_paused
+                      className={`px-3 py-1.5 sm:px-4 sm:py-2 lg:px-2.5 lg:py-1 rounded-lg text-[10px] sm:text-xs lg:text-[9px] font-bold uppercase tracking-wider transition ${                        room.is_paused
                           ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
                           : 'bg-yellow-500 hover:bg-yellow-400 text-black'
                       }`}
-                    >
+                    > 
                       {room.is_paused ? 'Resume' : 'Pause'}
                     </button>
                   )}
                 </div>
 
-                <h3 className="text-blue-500 font-bold tracking-widest uppercase mb-2">Current Bid</h3>
-                <h2 className={`font-black mb-6 tracking-tighter break-words ${(room.current_player?.name?.length ?? 0) > 18 ? 'text-3xl sm:text-4xl lg:text-5xl' : 'text-4xl sm:text-5xl lg:text-6xl'}`}>{room.current_player?.name}</h2>
+                <BouncingBasketball paused={room.is_paused} />
+
+                  
+
+                <div className="pt-12 sm:pt-10 lg:pt-6">
+                  <h3 className="text-blue-500 font-bold tracking-widest uppercase mb-2">
+                    Current Bid
+                  </h3>
+
+                  <h2
+                    className={`font-black mb-6 tracking-tighter ${
+                      (room.current_player?.name?.length ?? 0) > 18
+                        ? 'text-3xl sm:text-4xl lg:text-5xl'
+                        : 'text-4xl sm:text-5xl lg:text-4xl'
+                    }`}
+                  >
+                    {room.current_player?.name}
+                  </h2>
+                </div>
+      
                 {room.is_paused && (
                   <div className="mb-8 bg-yellow-500/10 border border-yellow-500/40 text-yellow-300 rounded-xl p-4 text-sm font-bold">
                     Auction paused by the host
