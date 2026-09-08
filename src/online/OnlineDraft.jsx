@@ -477,6 +477,7 @@ export default function OnlineDraft({ session, roomId, onExit }) {
   };
 
   const submitBid = async () => {
+    if (room.is_paused) return;
     const amount = parseInt(myBid) || 0;
     const roundKey = `${room.current_player.auction_id}_${room.tie_redo_count}`;
     const { error: bidErr } = await supabase.from('bids').upsert(
@@ -489,6 +490,7 @@ export default function OnlineDraft({ session, roomId, onExit }) {
   };
 
   const passBid = async () => {
+    if (room.is_paused) return;
     const roundKey = `${room.current_player.auction_id}_${room.tie_redo_count}`;
 
     const { error: bidErr } = await supabase.from('bids').upsert(
@@ -888,13 +890,14 @@ export default function OnlineDraft({ session, roomId, onExit }) {
                       />
                       <button
                         onClick={submitBid}
-                        disabled={!myBid || parseInt(myBid) < 1 || parseInt(myBid) > maxBid}
+                        disabled={room.is_paused ||!myBid || parseInt(myBid) < 1 || parseInt(myBid) > maxBid}
                         className="bg-blue-600 px-6 rounded-xl font-bold hover:bg-blue-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
                       >SUBMIT</button>
 
                       <button
                         onClick={passBid}
-                        className="bg-slate-700 px-4 rounded-xl font-bold hover:bg-slate-600 transition"
+                        disabled={room.is_paused}
+                        className="bg-slate-700 px-4 rounded-xl font-bold hover:bg-slate-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         PASS 
                       </button>
