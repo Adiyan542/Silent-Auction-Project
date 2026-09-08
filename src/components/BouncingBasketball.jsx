@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { playBounce } from '../lib/sound';
 
 export default function BouncingBasketball({
   paused = false,
@@ -10,6 +11,7 @@ export default function BouncingBasketball({
   const shadowRef = useRef(null);
   const startRef = useRef(null);
   const rafRef = useRef(null);
+  const lastBounceIndexRef = useRef(-1);
 
   useEffect(() => {
     if (paused) return;
@@ -20,6 +22,16 @@ export default function BouncingBasketball({
       }
 
       const elapsed = ts - startRef.current;
+
+      const bounceIndex = Math.floor(elapsed / bounceMs);
+
+      if (bounceIndex !== lastBounceIndexRef.current) {
+        if (lastBounceIndexRef.current !== -1) {
+          playBounce();
+        }
+
+        lastBounceIndexRef.current = bounceIndex;
+      }
 
       const container = ballRef.current?.parentElement?.parentElement;
       const containerWidth = container?.clientWidth ?? 260;
@@ -72,6 +84,7 @@ export default function BouncingBasketball({
       rafRef.current = requestAnimationFrame(tick);
     };
 
+    lastBounceIndexRef.current = -1;
     startRef.current = null;
     rafRef.current = requestAnimationFrame(tick);
 

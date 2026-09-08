@@ -27,6 +27,48 @@ export default function OnlineDraft({ session, roomId, onExit }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [error, setError] = useState('');
   const [showMyLineup, setShowMyLineup] = useState(false);
+  const [bidCount, setBidCount] = useState(0);
+
+
+  useEffect(() => {
+    if (
+      room?.status !== 'bidding' ||
+      !room.current_player?.auction_id
+    ) {
+      setBidCount(0);
+      return;
+    }
+  
+    let cancelled = false;
+  
+    const roundKey =
+      `${room.current_player.auction_id}_${room.tie_redo_count}`;
+  
+    const fetchCount = async () => {
+      const { data, error } = await supabase.rpc('bid_count', {
+        p_room_id: roomId,
+        p_round_key: roundKey,
+      });
+  
+      if (!cancelled && !error) {
+        setBidCount(data ?? 0);
+      }
+    };
+  
+    fetchCount();
+  
+    const interval = setInterval(fetchCount, 1000);
+  
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [
+    roomId,
+    room?.status,
+    room?.current_player?.auction_id,
+    room?.tie_redo_count,
+  ]);
 
 
   // --- Initial load + realtime subscriptions ---
@@ -51,7 +93,9 @@ export default function OnlineDraft({ session, roomId, onExit }) {
         () => {
           supabase.from('room_participants').select('*').eq('room_id', roomId).then(({ data }) => setParticipants(data ?? []));
         })
+
       .subscribe();
+      
 
     return () => { cancelled = true; supabase.removeChannel(channel); };
   }, [roomId]);
@@ -152,6 +196,7 @@ export default function OnlineDraft({ session, roomId, onExit }) {
   const me = participants.find((p) => p.user_id === myId);
   const isHost = room?.host_id === myId;
 
+
   const pauseAuction = async () => {
     if (!isHost || room?.status !== 'bidding' || room?.is_paused) return;
   
@@ -207,6 +252,26 @@ export default function OnlineDraft({ session, roomId, onExit }) {
     // so only the OTHER remaining slots need $1 reserved.
     return Math.max(0, p.budget - (slotsLeft - 1));
   };
+
+  const eligibleCount = participants.filter((p) => {
+    const slotsLeft = rosterSize - (p.roster?.length ?? 0);
+  
+    if (slotsLeft <= 0) return false;
+  
+    if (
+      room.tie_eligible_ids &&
+      !room.tie_eligible_ids.includes(p.user_id)
+    ) {
+      return false;
+    }
+  
+    if (room.current_player?.isPandora) {
+      return true;
+    }
+  
+    return getMaxBid(p) >= 1;
+  }).length;
+
 
   // --- Actions ---
   const toggleReady = async () => {
@@ -583,6 +648,30 @@ export default function OnlineDraft({ session, roomId, onExit }) {
                     {room.current_player?.name}
                   </h2>
                 </div>
+
+                <div className="mb-5 flex items-center justify-center gap-3">
+                  <div className="flex gap-1.5">
+                    {Array.from({ length: eligibleCount }).map((_, index) => (
+                      <span
+                        key={index}
+                        className={`w-2.5 h-2.5 rounded-full ${
+                          index < bidCount
+                            ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.65)]'
+                            : 'bg-slate-700'
+                        }`}
+                      />
+                    ))}
+                  </div>
+
+                  <div className="bg-slate-950/70 border border-slate-800 rounded-full px-3 py-1">
+                     <span className="text-xs font-black tracking-widest uppercase text-slate-400">
+                       {bidCount}/{eligibleCount} submitted
+                     </span>
+                  </div> 
+                </div>
+
+
+
       
                 {room.is_paused && (
                   <div className="mb-8 bg-yellow-500/10 border border-yellow-500/40 text-yellow-300 rounded-xl p-4 text-sm font-bold">

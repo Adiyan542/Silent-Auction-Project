@@ -160,3 +160,18 @@ create policy "users can update only their own bid before resolution"
 alter publication supabase_realtime add table rooms;
 alter publication supabase_realtime add table room_participants;
 alter publication supabase_realtime add table bids;
+
+
+create or replace function bid_count(p_room_id uuid, p_round_key text)
+returns int
+language sql
+security definer
+set search_path = public
+as $$
+  select count(distinct user_id)::int
+  from bids
+  where room_id = p_room_id
+    and round_key = p_round_key;
+$$;
+
+grant execute on function bid_count(uuid, text) to authenticated;

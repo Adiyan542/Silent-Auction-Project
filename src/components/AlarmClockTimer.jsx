@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { playTick, playAlarm } from '../lib/sound';
 
 export function AlarmClockTimer({ secondsLeft, totalSeconds }) {
   const [shakeAngle, setShakeAngle] = useState(0);
@@ -32,6 +33,17 @@ export function AlarmClockTimer({ secondsLeft, totalSeconds }) {
       setShakeAngle(0);
     }
   }, [secondsLeft]);
+
+  useEffect(() => {
+    if (secondsLeft > 0 && secondsLeft <= 5) {
+      playTick();
+    }
+  
+    if (secondsLeft === 0) {
+      playAlarm();
+    }
+  }, [secondsLeft]);
+
 
   const ticks = [];
 
