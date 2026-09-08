@@ -1,4 +1,16 @@
+let soundEnabled =
+  localStorage.getItem('soundEnabled') !== 'false';
+
 let ctx = null;
+
+export function setSoundEnabled(enabled) {
+  soundEnabled = enabled;
+  localStorage.setItem('soundEnabled', String(enabled));
+}
+
+export function getSoundEnabled() {
+  return soundEnabled;
+}
 
 function getCtx() {
   if (!ctx) {
@@ -13,6 +25,7 @@ function getCtx() {
 }
 
 export function playTick() {
+  if (!soundEnabled) return;
   const c = getCtx();
   const osc = c.createOscillator();
   const gain = c.createGain();
@@ -33,6 +46,7 @@ export function playTick() {
 }
 
 export function playAlarm() {
+  if (!soundEnabled) return;
   const c = getCtx();
   const now = c.currentTime;
 
@@ -58,6 +72,7 @@ export function playAlarm() {
 
 
 export function playBounce() {
+  if (!soundEnabled) return;
     const c = getCtx();
     const now = c.currentTime;
   

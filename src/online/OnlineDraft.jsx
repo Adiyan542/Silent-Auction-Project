@@ -6,6 +6,7 @@ import { PandorasBoxIcon } from '../components/PandorasBoxIcon';
 import YourLineup from '../components/YourLineup';
 import { AlarmClockTimer } from '../components/AlarmClockTimer';
 import BouncingBasketball from '../components/BouncingBasketball';
+import { getSoundEnabled, setSoundEnabled } from '../lib/sound';
 
 
 const PANDORA_ELIGIBLE_AFTER = 12;
@@ -28,6 +29,7 @@ export default function OnlineDraft({ session, roomId, onExit }) {
   const [error, setError] = useState('');
   const [showMyLineup, setShowMyLineup] = useState(false);
   const [bidCount, setBidCount] = useState(0);
+  const [soundEnabled, setSoundEnabledState] = useState(getSoundEnabled());
 
 
   useEffect(() => {
@@ -271,6 +273,14 @@ export default function OnlineDraft({ session, roomId, onExit }) {
   
     return getMaxBid(p) >= 1;
   }).length;
+
+
+  const toggleSound = () => {
+    const next = !soundEnabled;
+  
+    setSoundEnabled(next);
+    setSoundEnabledState(next);
+  };
 
 
   // --- Actions ---
@@ -556,6 +566,17 @@ export default function OnlineDraft({ session, roomId, onExit }) {
     return (
       <div className="min-h-screen bg-slate-950 text-white p-4">
         <div className="max-w-5xl mx-auto">
+
+          <div className="flex justify-end mb-4">
+            <button
+              type="button"
+              onClick={toggleSound}
+              className="px-3 py-2 rounded-lg bg-slate-900 border border-slate-800 text-xs font-bold text-slate-300 hover:text-white transition"
+            >
+              {soundEnabled ? '🔊 SOUND ON' : '🔇 SOUND OFF'}
+            </button>
+        </div>
+
           {room.draft_log?.length > 0 && (
             <div className="mb-6">
               <h3 className="font-bold text-slate-500 text-xs uppercase tracking-widest mb-3">Draft Board</h3>
