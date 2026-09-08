@@ -368,6 +368,27 @@ export default function OnlineDraft({ session, roomId, onExit }) {
 
   // --- Actions ---
 
+
+  const leaveLobby = async () => {
+    if (room?.status !== 'lobby') {
+      onExit();
+      return;
+    }
+  
+    const { error: leaveError } = await supabase
+      .from('room_participants')
+      .delete()
+      .eq('room_id', roomId)
+      .eq('user_id', myId);
+  
+    if (leaveError) {
+      setError(leaveError.message);
+      return;
+    }
+  
+    onExit();
+  };
+
   const deleteRoom = async () => {
     const confirmed = window.confirm(
       'Delete this room? This will end the draft for everyone and cannot be undone.'
@@ -577,7 +598,7 @@ export default function OnlineDraft({ session, roomId, onExit }) {
           <div className="flex items-center justify-between mb-4">
             <button
               type="button"
-              onClick={onExit}
+              onClick={leaveLobby}
               className="text-slate-500 text-xs hover:text-slate-300"
             >
               &larr; Leave room

@@ -146,6 +146,15 @@ create policy "users can join a room as themselves"
 create policy "users can update only their own participant row"
   on room_participants for update using (auth.uid() = user_id);
 
+-- Users can remove themselves from a room.
+create policy "users can leave a room themselves"
+
+  on room_participants
+  for delete
+  using (
+    auth.uid() = user_id
+  );
+
 -- bids: this is what keeps bidding "blind". While a room is still 'bidding',
 -- you can only see your own bid row. Once the room moves on (resolved by the
 -- edge function), everyone in the room can see every bid from that round.
