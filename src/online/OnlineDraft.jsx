@@ -30,6 +30,7 @@ export default function OnlineDraft({ session, roomId, onExit }) {
   const [showMyLineup, setShowMyLineup] = useState(false);
   const [bidCount, setBidCount] = useState(0);
   const [soundEnabled, setSoundEnabledState] = useState(getSoundEnabled());
+  const [expandedRosterIds, setExpandedRosterIds] = useState(new Set());
 
 
 
@@ -348,6 +349,21 @@ export default function OnlineDraft({ session, roomId, onExit }) {
     setSoundEnabled(next);
     setSoundEnabledState(next);
   };
+
+  const toggleRosterExpanded = (userId) => {
+    setExpandedRosterIds((prev) => {
+      const next = new Set(prev);
+  
+      if (next.has(userId)) {
+        next.delete(userId);
+      } else {
+        next.add(userId);
+      }
+  
+      return next;
+    });
+  };
+  
 
 
   // --- Actions ---
@@ -894,24 +910,85 @@ export default function OnlineDraft({ session, roomId, onExit }) {
 
             <div className="space-y-4 max-h-screen overflow-y-auto pr-2">
               <h3 className="font-bold text-slate-500 text-xs uppercase tracking-widest">Live Rosters</h3>
-              {participants.map((p) => (
-                <div key={p.user_id} className={`p-4 rounded-xl border ${p.user_id === myId ? 'bg-blue-900/20 border-blue-500' : 'bg-slate-900 border-slate-800'}`}>
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="font-bold text-sm">{p.display_name} {p.user_id === myId && '(You)'}</span>
-                    <span className="text-emerald-400 font-mono text-sm">${p.budget}</span>
-                  </div>
-                  <div className="flex flex-wrap gap-1">
-                    {(p.roster ?? []).map((player, i) => (
-                      <div key={i} className="text-[10px] bg-slate-800 px-2 py-1 rounded text-slate-300 border border-slate-700" title={`${player.name} ($${player.cost})`}>
-                        {player.name.split(' ').pop()}
+
+              {participants.map((p) => {
+                const isExpanded = expandedRosterIds.has(p.user_id);
+                return (
+                  <div
+                    key={p.user_id}
+                    className={`p-4 rounded-xl border ${
+                      p.user_id === myId
+                        ? 'bg-blue-900/20 border-blue-500'
+                        : 'bg-slate-900 border-slate-800'
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleRosterExpanded(p.user_id)}
+                      className="w-full text-left"
+                    >
+                      <div className="flex justify-between items-center">
+                        <span className="font-bold text-sm">
+                          {p.display_name} {p.user_id === myId && '(You)'}
+                        </span>
+
+                        <div className="flex items-center gap-2">
+                          <span className="text-emerald-400 font-mono text-sm">
+                            ${p.budget}
+                          </span>
+
+                          <span className="text-slate-500 text-xs">
+                            {isExpanded ? '▲' : '▼'}
+                          </span>
+                        </div>
                       </div>
-                    ))}
-                    {(!p.roster || p.roster.length === 0) && <div className="text-[10px] text-slate-600 italic">Empty Roster</div>}
+
+                      {!isExpanded && (
+                        <>
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {(p.roster ?? []).map((player, i) => (
+                              <div
+                                key={i}
+                                className="text-[10px] bg-slate-800 px-2 py-1 rounded text-slate-300 border border-slate-700"
+                                title={`${player.name} ($${player.cost})`}
+                              >
+                                {player.name.split(' ').pop()}
+                              </div>
+                            ))} 
+
+                            {(!p.roster || p.roster.length === 0) && (
+                              <div className="text-[10px] text-slate-600 italic">
+                                Empty Roster
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="text-[10px] text-slate-600 mt-2">
+                            {p.roster?.length ?? 0}/{rosterSize} slots filled
+                          </div>
+                        </>
+                      )}  
+                    </button>
+
+                    {isExpanded && (
+                      <div className="mt-3">
+                        <YourLineup
+                          roster={p.roster ?? []}
+                          budget={p.budget}
+                          title={
+                            p.user_id === myId
+                              ? 'Your Lineup'
+                              : `${p.display_name}'s Lineup`
+                          }
+                          compact
+                        />
+                      </div>
+                    )}
                   </div>
-                  <div className="text-[10px] text-slate-600 mt-2">{p.roster?.length ?? 0}/{rosterSize} slots filled</div>
-                </div>
-              ))}
+                );
+              })}
             </div>
+
           </div>
         </div>
       </div>
@@ -1122,23 +1199,83 @@ export default function OnlineDraft({ session, roomId, onExit }) {
 
             <div className="space-y-4 max-h-screen overflow-y-auto pr-2">
               <h3 className="font-bold text-slate-500 text-xs uppercase tracking-widest">Live Rosters</h3>
-              {participants.map((p) => (
-                <div key={p.user_id} className={`p-4 rounded-xl border ${p.user_id === myId ? 'bg-blue-900/20 border-blue-500' : 'bg-slate-900 border-slate-800'}`}>
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="font-bold text-sm">{p.display_name} {p.user_id === myId && '(You)'}</span>
-                    <span className="text-emerald-400 font-mono text-sm">${p.budget}</span>
-                  </div>
-                  <div className="flex flex-wrap gap-1">
-                    {(p.roster ?? []).map((player, i) => (
-                      <div key={i} className="text-[10px] bg-slate-800 px-2 py-1 rounded text-slate-300 border border-slate-700" title={`${player.name} ($${player.cost})`}>
-                        {player.name.split(' ').pop()}
+
+              {participants.map((p) => {
+                const isExpanded = expandedRosterIds.has(p.user_id);
+                return (
+                  <div
+                    key={p.user_id}
+                    className={`p-4 rounded-xl border ${
+                      p.user_id === myId
+                        ? 'bg-blue-900/20 border-blue-500'
+                        : 'bg-slate-900 border-slate-800'
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleRosterExpanded(p.user_id)}
+                      className="w-full text-left"
+                    >
+                      <div className="flex justify-between items-center">
+                        <span className="font-bold text-sm">
+                          {p.display_name} {p.user_id === myId && '(You)'}
+                        </span>
+
+                        <div className="flex items-center gap-2">
+                          <span className="text-emerald-400 font-mono text-sm">
+                            ${p.budget}
+                          </span>
+
+                          <span className="text-slate-500 text-xs">
+                            {isExpanded ? '▲' : '▼'}
+                          </span>
+                        </div>
                       </div>
-                    ))}
-                    {(!p.roster || p.roster.length === 0) && <div className="text-[10px] text-slate-600 italic">Empty Roster</div>}
+
+                      {!isExpanded && (
+                        <>
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {(p.roster ?? []).map((player, i) => (
+                              <div
+                                key={i}
+                                className="text-[10px] bg-slate-800 px-2 py-1 rounded text-slate-300 border border-slate-700"
+                                title={`${player.name} ($${player.cost})`}
+                              >
+                                {player.name.split(' ').pop()}
+                              </div>
+                            ))} 
+
+                            {(!p.roster || p.roster.length === 0) && (
+                              <div className="text-[10px] text-slate-600 italic">
+                                Empty Roster
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="text-[10px] text-slate-600 mt-2">
+                            {p.roster?.length ?? 0}/{rosterSize} slots filled
+                          </div>
+                        </>
+                      )}  
+                    </button>
+
+                    {isExpanded && (
+                      <div className="mt-3">
+                        <YourLineup
+                          roster={p.roster ?? []}
+                          budget={p.budget}
+                          title={
+                            p.user_id === myId
+                              ? 'Your Lineup'
+                              : `${p.display_name}'s Lineup`
+                          }
+                          compact
+                        />
+                      </div>
+                    )}
                   </div>
-                  <div className="text-[10px] text-slate-600 mt-2">{p.roster?.length ?? 0}/{rosterSize} slots filled</div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>

@@ -81,14 +81,14 @@ const buildLineup = (roster = []) => {
   return [...activeSlots, ...benchSlots];
 };
 
-export default function YourLineup({ roster = [], budget }) {
+export default function YourLineup({ roster = [], budget, title = 'Your Lineup', compact = false,}) {
   const lineup = buildLineup(roster);
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+    <div className={`bg-slate-900 border border-slate-800 rounded-2xl ${ compact ? 'p-3' : 'p-4'}`}>
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-black text-white text-sm uppercase tracking-widest">
-          Your Lineup
+          {title}
         </h3>
 
         <div className="text-right">
@@ -108,22 +108,39 @@ export default function YourLineup({ roster = [], budget }) {
         {lineup.map((entry, index) => (
           <div
             key={`${entry.slot}-${index}`}
-            className="grid grid-cols-[42px_1fr_auto] items-center gap-2 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2"
+            className={`grid items-center bg-slate-950 border border-slate-800 rounded-lg ${
+              compact
+                ? 'grid-cols-[34px_minmax(0,1fr)] gap-1 px-2 py-1.5'
+                : 'grid-cols-[42px_1fr_auto] gap-2 px-3 py-2'
+            }`}
           >
             <span className="text-slate-500 text-xs font-black">
               {entry.slot}
             </span>
 
             {entry.player ? (
-              <>
-                <span className="text-white text-xs whitespace-nowrap">
-                  {entry.player.name}
-                </span>
+              compact ? (
+                <div className="min-w-0 flex items-center justify-between gap-1">
+                  <span className="text-white text-[11px] truncate">
+                    {entry.player.name}
+                  </span>
 
-                <span className="text-slate-500 text-xs font-mono">
-                  ${entry.player.cost}
-                </span>
-              </>
+                  <span className="text-slate-500 text-[10px] font-mono shrink-0">
+                    ${entry.player.cost}
+                  </span>
+
+                </div>
+              ) : (
+                <>
+                  <span className="text-white text-xs whitespace-nowrap">
+                    {entry.player.name}
+                  </span>
+
+                  <span className="text-slate-500 text-xs font-mono">
+                    ${entry.player.cost}
+                  </span>
+                </>
+              )
             ) : (
               <span className="text-slate-700 text-sm col-span-2">
                 —
@@ -135,3 +152,4 @@ export default function YourLineup({ roster = [], budget }) {
     </div>
   );
 }
+  
