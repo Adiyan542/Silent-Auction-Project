@@ -107,6 +107,14 @@ create policy "participants can update their room"
     )
   );
 
+-- Only the host can permanently delete the room.
+create policy "host can delete their room"
+  on rooms
+  for delete
+  using (
+    auth.uid() = host_id
+  );
+
 -- room_participants: participants of a room can see the roster; you can only
 -- insert/update your own row.
 

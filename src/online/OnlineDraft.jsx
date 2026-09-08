@@ -150,7 +150,14 @@ export default function OnlineDraft({ session, roomId, onExit }) {
     const channel = supabase
       .channel(`room-${roomId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` },
-        (payload) => setRoom(payload.new))
+        (payload) => {
+          if (payload.eventType === 'DELETE') {
+            onExit();
+            return;
+          }
+          setRoom(payload.new);
+        }
+      )   
       .on('postgres_changes', { event: '*', schema: 'public', table: 'room_participants', filter: `room_id=eq.${roomId}` },
         () => {
           supabase.from('room_participants').select('*').eq('room_id', roomId).then(({ data }) => setParticipants(data ?? []));
@@ -344,6 +351,41 @@ export default function OnlineDraft({ session, roomId, onExit }) {
 
 
   // --- Actions ---
+
+  const deleteRoom = async () => {
+    const confirmed = window.confirm(
+      'Delete this room? This will end the draft for everyone and cannot be undone.'
+    );
+  
+    if (!confirmed) return;
+  
+    const { error: deleteError } = await supabase
+      .from('rooms')
+      .delete()
+      .eq('id', roomId);
+  
+    if (deleteError) {
+      setError(deleteError.message);
+      return;
+    }
+  
+    onExit();
+  };
+
+  const DeleteRoomButton = ({ className = '' }) => {
+  if (!isHost) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={deleteRoom}
+      className={`bg-red-600 hover:bg-red-500 text-white text-xs font-bold px-3 py-2 rounded-lg transition ${className}`}
+    >
+      DELETE ROOM
+    </button>
+  );
+};
+
   const toggleReady = async () => {
     await supabase.from('room_participants').update({ is_ready: !me.is_ready }).eq('room_id', roomId).eq('user_id', myId);
   };
@@ -646,7 +688,9 @@ export default function OnlineDraft({ session, roomId, onExit }) {
       <div className="min-h-screen bg-slate-950 text-white p-4">
         <div className="max-w-5xl mx-auto">
 
-          <div className="flex justify-end mb-4">
+          <div className="flex justify-end items-center gap-2 mb-4">
+            <DeleteRoomButton />
+
             <button
               type="button"
               onClick={toggleSound}
@@ -879,6 +923,9 @@ export default function OnlineDraft({ session, roomId, onExit }) {
     return (
       <div className="min-h-screen bg-slate-950 text-white p-4">
         <div className="max-w-5xl mx-auto">
+          <div className="flex justify-end mb-4">
+            <DeleteRoomButton />
+          </div>
           {room.draft_log?.length > 0 && (
             <div className="mb-6">
               <h3 className="font-bold text-slate-500 text-xs uppercase tracking-widest mb-3">Draft Board</h3>
@@ -1102,6 +1149,9 @@ export default function OnlineDraft({ session, roomId, onExit }) {
   if (room.status === 'complete') {
     return (
       <div className="min-h-screen bg-slate-950 text-white p-8">
+        <div className="flex justify-end mb-6">
+          <DeleteRoomButton />
+        </div>
         <h1 className="text-5xl font-black text-center mb-12 text-yellow-400 italic">DRAFT SUMMARY</h1>
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
           {[...participants]
