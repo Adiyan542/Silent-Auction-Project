@@ -6,7 +6,7 @@ import { PandorasBoxIcon } from '../components/PandorasBoxIcon';
 import YourLineup from '../components/YourLineup';
 import { AlarmClockTimer } from '../components/AlarmClockTimer';
 import BouncingBasketball from '../components/BouncingBasketball';
-import { getSoundEnabled, setSoundEnabled } from '../lib/sound';
+import { getSoundEnabled, setSoundEnabled, startElevatorMusic, stopElevatorMusic,} from '../lib/sound';
 
 
 const PANDORA_ELIGIBLE_AFTER = 12;
@@ -31,6 +31,66 @@ export default function OnlineDraft({ session, roomId, onExit }) {
   const [bidCount, setBidCount] = useState(0);
   const [soundEnabled, setSoundEnabledState] = useState(getSoundEnabled());
 
+
+
+  useEffect(() => {
+    if (
+      room?.status !== 'lobby' ||
+      !soundEnabled ||
+      !room?.created_at
+    ) {
+      stopElevatorMusic();
+      return;
+    }
+  
+    const lobbyStartedAt = new Date(room.created_at).getTime();
+  
+    startElevatorMusic(lobbyStartedAt);
+  
+    return () => {
+      stopElevatorMusic();
+    };
+  }, [
+    room?.status,
+    room?.created_at,
+    soundEnabled,
+  ]);
+  
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        stopElevatorMusic();
+        return;
+      }
+  
+      if (
+        room?.status === 'lobby' &&
+        soundEnabled &&
+        room?.created_at
+      ) {
+        const lobbyStartedAt =
+          new Date(room.created_at).getTime();
+  
+        startElevatorMusic(lobbyStartedAt);
+      }
+    };
+  
+    document.addEventListener(
+      'visibilitychange',
+      handleVisibilityChange
+    );
+  
+    return () => {
+      document.removeEventListener(
+        'visibilitychange',
+        handleVisibilityChange
+      );
+    };
+  }, [
+    room?.status,
+    room?.created_at,
+    soundEnabled,
+  ]);
 
   useEffect(() => {
     if (
@@ -453,7 +513,26 @@ export default function OnlineDraft({ session, roomId, onExit }) {
     return (
       <div className="min-h-screen bg-slate-900 p-6 flex flex-col items-center">
         <div className="w-full max-w-2xl bg-slate-800 rounded-2xl p-6 border border-slate-700">
-          <button onClick={onExit} className="text-slate-500 text-xs mb-4 hover:text-slate-300">&larr; Leave room</button>
+          
+          <div className="flex items-center justify-between mb-4">
+            <button
+              type="button"
+              onClick={onExit}
+              className="text-slate-500 text-xs hover:text-slate-300"
+            >
+              &larr; Leave room
+            </button>
+
+            <button
+              type="button"
+              onClick={toggleSound}
+              className="text-slate-500 text-xs hover:text-slate-300 transition"
+            > 
+              {soundEnabled ? '🔊 SOUND ON' : '🔇 SOUND OFF'}
+            </button>
+      
+          </div>
+          
           <div className="flex items-center justify-between mb-1">
             <h2 className="text-white text-xl font-bold">Room Code</h2>
             <button onClick={copyRoomCode} className="flex items-center gap-1 text-blue-400 text-sm hover:text-blue-300">

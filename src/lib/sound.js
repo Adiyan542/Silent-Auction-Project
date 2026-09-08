@@ -6,6 +6,10 @@ let ctx = null;
 export function setSoundEnabled(enabled) {
   soundEnabled = enabled;
   localStorage.setItem('soundEnabled', String(enabled));
+
+  if (!enabled) {
+    stopElevatorMusic();
+  }
 }
 
 export function getSoundEnabled() {
@@ -96,3 +100,60 @@ export function playBounce() {
     osc.start(now);
     osc.stop(now + 0.12);
   }
+
+// ---------- Lobby music ----------
+
+let lobbyMusic = null;
+
+export function startElevatorMusic(lobbyStartedAt) {
+  if (!soundEnabled) return;
+
+  if (!lobbyMusic) {
+    lobbyMusic = new Audio(
+      '/audio/AuctionDraftLobbyMusic.mp3'
+    );
+
+    lobbyMusic.loop = true;
+    lobbyMusic.volume = 0.4;
+  }
+
+  const syncAndPlay = () => {
+    if (
+      !lobbyMusic.duration ||
+      !Number.isFinite(lobbyMusic.duration)
+    ) {
+      return;
+    }
+
+    const elapsedSeconds =
+      (Date.now() - lobbyStartedAt) / 1000;
+
+    const syncedPosition =
+      elapsedSeconds % lobbyMusic.duration;
+
+    lobbyMusic.currentTime = syncedPosition;
+
+    lobbyMusic.play().catch((err) => {
+      console.log(
+        'Lobby music waiting for user interaction:',
+        err
+      );
+    });
+  };
+
+  if (lobbyMusic.readyState >= 1) {
+    syncAndPlay();
+  } else {
+    lobbyMusic.addEventListener(
+      'loadedmetadata',
+      syncAndPlay,
+      { once: true }
+    );
+  }
+}
+
+export function stopElevatorMusic() {
+  if (!lobbyMusic) return;
+
+  lobbyMusic.pause();
+}
