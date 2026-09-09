@@ -7,6 +7,7 @@ import YourLineup from '../components/YourLineup';
 import { AlarmClockTimer } from '../components/AlarmClockTimer';
 import BouncingBasketball from '../components/BouncingBasketball';
 import { getSoundEnabled, setSoundEnabled, startElevatorMusic, stopElevatorMusic,} from '../lib/sound';
+import {TradeProposalCard, TradeProposalComposer, TradeProposalLive,} from './TradeProposal';
 
 
 const PANDORA_ELIGIBLE_AFTER = 12;
@@ -31,7 +32,53 @@ export default function OnlineDraft({ session, roomId, onExit }) {
   const [bidCount, setBidCount] = useState(0);
   const [soundEnabled, setSoundEnabledState] = useState(getSoundEnabled());
   const [expandedRosterIds, setExpandedRosterIds] = useState(new Set());
+  const [composingTrade, setComposingTrade] = useState(false);
+  const [activeTrade, setActiveTrade] = useState(null);
 
+
+// --- Trade Proposal realtime subscription ---
+  useEffect(() => {
+    if (!room?.active_trade_id) {
+      setActiveTrade(null);
+      return;
+    }
+  
+    let cancelled = false;
+    const tradeId = room.active_trade_id;
+  
+    const load = async () => {
+      const { data, error: tradeError } = await supabase
+        .from('trade_proposals')
+        .select('*')
+        .eq('id', tradeId)
+        .single();
+  
+      if (!cancelled && !tradeError) {
+        setActiveTrade(data);
+      }
+    };
+  
+    load();
+  
+    const channel = supabase
+      .channel(`trade-${tradeId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'trade_proposals',
+          filter: `id=eq.${tradeId}`,
+        },
+        load
+      )
+      .subscribe();
+  
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
+  }, [room?.active_trade_id]);
 
 
   useEffect(() => {
@@ -674,9 +721,23 @@ export default function OnlineDraft({ session, roomId, onExit }) {
               />
             </div>
           </header>
+          {composingTrade && (
+            <TradeProposalComposer
+              roomId={roomId}
+              myId={myId}
+              participants={participants}
+              onClose={() => setComposingTrade(false)}
+              onSent={() => setComposingTrade(false)}
+            />
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
-            {room.pandora_available && !room.pandora_used &&(
+            <TradeProposalCard
+              onClick={() => setComposingTrade(true)}
+            />
+
+            {room.pandora_available && !room.pandora_used && (
               <button
                 type="button"
                 onClick={nominatePandorasBox}
@@ -715,6 +776,26 @@ export default function OnlineDraft({ session, roomId, onExit }) {
                 </button>
               ))}
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (room.status === 'trade_proposal') {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white p-4">
+        <div className="max-w-2xl mx-auto pt-20">
+          {activeTrade ? (
+            <TradeProposalLive
+              trade={activeTrade}
+              myId={myId}
+              participants={participants}
+            />
+          ) : (
+            <div className="text-center text-slate-500">
+              Loading trade proposal...
+            </div>
+          )}
         </div>
       </div>
     );

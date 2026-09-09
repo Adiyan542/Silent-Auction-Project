@@ -21,7 +21,7 @@ create table if not exists rooms (
   room_code text unique not null,
   host_id uuid not null references profiles(id),
   status text not null default 'lobby',
-    -- 'lobby' | 'nominating' | 'bidding' | 'results' | 'complete'
+    -- 'lobby' | 'nominating' | 'bidding' | 'results' | 'complete' | 'trade proposal'
     -- 'results': an auction just resolved (or was auto-awarded, or had no
     -- bidders); budgets/rosters are already updated, but the room stays
     -- parked here — showing the winner and every bid — until the HOST
@@ -192,3 +192,738 @@ as $$
 $$;
 
 grant execute on function bid_count(uuid, text) to authenticated;
+
+
+
+-- ---------- Trade Proposals ----------
+
+create table if not exists trade_proposals (
+  id uuid primary key default gen_random_uuid(),
+  room_id uuid not null references rooms(id) on delete cascade,
+  from_user_id uuid not null references auth.users(id) on delete cascade,
+  to_user_id uuid not null references auth.users(id) on delete cascade,
+  status text not null default 'pending',
+  give_players jsonb not null default '[]',
+  give_cash int not null default 0,
+  receive_players jsonb not null default '[]',
+  receive_cash int not null default 0,
+  invalid_reason text,
+  created_at timestamptz not null default now(),
+  resolved_at timestamptz
+);
+
+alter table rooms
+add column if not exists active_trade_id uuid references trade_proposals(id);
+
+alter table trade_proposals enable row level security;
+
+create policy "trade proposals visible to room participants"
+  on trade_proposals
+  for select
+  using (
+    public.is_room_participant(room_id)
+  );
+
+alter publication supabase_realtime
+add table trade_proposals;
+
+
+create or replace function create_trade_proposal(
+  p_room_id uuid,
+  p_to_user_id uuid,
+  p_give_players jsonb,
+  p_give_cash int,
+  p_receive_players jsonb,
+  p_receive_cash int
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_room rooms%rowtype;
+  v_from room_participants%rowtype;
+  v_to room_participants%rowtype;
+  v_current_nominator uuid;
+  v_trade_id uuid;
+  v_player jsonb;
+begin
+  select *
+  into v_room
+  from rooms
+  where id = p_room_id
+  for update;
+
+  if not found then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'Room not found'
+    );
+  end if;
+
+  if v_room.status <> 'nominating' then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'Trades can only be proposed during your nomination turn'
+    );
+  end if;
+
+  v_current_nominator :=
+    v_room.nominator_order[v_room.current_nominator_index + 1];
+
+  if auth.uid() is distinct from v_current_nominator then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'Only the current nominator can propose a trade'
+    );
+  end if;
+
+  if p_to_user_id = auth.uid() then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'You cannot trade with yourself'
+    );
+  end if;
+
+  if jsonb_array_length(p_give_players) = 0
+     or jsonb_array_length(p_receive_players) = 0 then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'Both sides must include at least one player'
+    );
+  end if;
+
+  if jsonb_array_length(p_give_players) > 2
+     or jsonb_array_length(p_receive_players) > 2 then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'Trades are limited to 2 players per side'
+    );
+  end if;
+
+  select *
+  into v_from
+  from room_participants
+  where room_id = p_room_id
+    and user_id = auth.uid();
+
+  select *
+  into v_to
+  from room_participants
+  where room_id = p_room_id
+    and user_id = p_to_user_id;
+
+  if v_from is null then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'You are not in this room'
+    );
+  end if;
+
+  if v_to is null then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'That manager is not in this room'
+    );
+  end if;
+
+  for v_player in
+    select * from jsonb_array_elements(p_give_players)
+  loop
+    if not exists (
+      select 1
+      from jsonb_array_elements(v_from.roster) p
+      where (p->>'id')::int = (v_player->>'id')::int
+    ) then
+      return jsonb_build_object(
+        'ok', false,
+        'error', 'You do not own ' || (v_player->>'name')
+      );
+    end if;
+  end loop;
+
+  for v_player in
+    select * from jsonb_array_elements(p_receive_players)
+  loop
+    if not exists (
+      select 1
+      from jsonb_array_elements(v_to.roster) p
+      where (p->>'id')::int = (v_player->>'id')::int
+    ) then
+      return jsonb_build_object(
+        'ok', false,
+        'error', 'They do not own ' || (v_player->>'name')
+      );
+    end if;
+  end loop;
+
+  if p_give_cash < 0 or p_receive_cash < 0 then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'Cash amounts cannot be negative'
+    );
+  end if;
+
+  if p_give_cash > v_from.budget then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'You do not have enough budget'
+    );
+  end if;
+
+  if p_receive_cash > v_to.budget then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'They do not have enough budget'
+    );
+  end if;
+
+  insert into trade_proposals (
+    room_id,
+    from_user_id,
+    to_user_id,
+    give_players,
+    give_cash,
+    receive_players,
+    receive_cash
+  )
+  values (
+    p_room_id,
+    auth.uid(),
+    p_to_user_id,
+    p_give_players,
+    p_give_cash,
+    p_receive_players,
+    p_receive_cash
+  )
+  returning id into v_trade_id;
+
+  update rooms
+  set
+    status = 'trade_proposal',
+    active_trade_id = v_trade_id
+  where id = p_room_id;
+
+  return jsonb_build_object(
+    'ok', true,
+    'trade_id', v_trade_id
+  );
+end;
+$$;
+
+grant execute on function create_trade_proposal(
+  uuid,
+  uuid,
+  jsonb,
+  int,
+  jsonb,
+  int
+) to authenticated;
+
+
+create or replace function accept_trade_proposal(
+  p_trade_id uuid
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_trade trade_proposals%rowtype;
+  v_room rooms%rowtype;
+  v_from room_participants%rowtype;
+  v_to room_participants%rowtype;
+
+  v_from_new_roster jsonb;
+  v_to_new_roster jsonb;
+
+  v_from_new_budget int;
+  v_to_new_budget int;
+
+  v_roster_size int;
+  v_player jsonb;
+
+  v_order uuid[];
+  v_len int;
+  v_i int;
+  v_next_idx int;
+  v_candidate uuid;
+  v_candidate_roster_len int;
+
+  v_done boolean := true;
+begin
+  select *
+  into v_trade
+  from trade_proposals
+  where id = p_trade_id
+  for update;
+
+  if not found then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'Trade not found'
+    );
+  end if;
+
+  if v_trade.status <> 'pending' then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'This trade is no longer pending'
+    );
+  end if;
+
+  if auth.uid() is distinct from v_trade.to_user_id then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'Only the recipient can accept this trade'
+    );
+  end if;
+
+  select *
+  into v_room
+  from rooms
+  where id = v_trade.room_id
+  for update;
+
+  if v_room.active_trade_id is distinct from p_trade_id then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'This trade is no longer active'
+    );
+  end if;
+
+  v_roster_size :=
+    coalesce(
+      (v_room.settings->>'roster_size')::int,
+      13
+    );
+
+  select *
+  into v_from
+  from room_participants
+  where room_id = v_trade.room_id
+    and user_id = v_trade.from_user_id
+  for update;
+
+  select *
+  into v_to
+  from room_participants
+  where room_id = v_trade.room_id
+    and user_id = v_trade.to_user_id
+  for update;
+
+  if v_from is null or v_to is null then
+    update trade_proposals
+    set
+      status = 'invalid',
+      invalid_reason = 'A participant left the room',
+      resolved_at = now()
+    where id = p_trade_id;
+
+    update rooms
+    set
+      status = 'nominating',
+      active_trade_id = null
+    where id = v_trade.room_id;
+
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'A participant left the room'
+    );
+  end if;
+
+  for v_player in
+    select * from jsonb_array_elements(v_trade.give_players)
+  loop
+    if not exists (
+      select 1
+      from jsonb_array_elements(v_from.roster) p
+      where (p->>'id')::int = (v_player->>'id')::int
+    ) then
+      update trade_proposals
+      set
+        status = 'invalid',
+        invalid_reason =
+          'Sender no longer owns ' || (v_player->>'name'),
+        resolved_at = now()
+      where id = p_trade_id;
+
+      update rooms
+      set
+        status = 'nominating',
+        active_trade_id = null
+      where id = v_trade.room_id;
+
+      return jsonb_build_object(
+        'ok', false,
+        'error',
+        'Sender no longer owns ' || (v_player->>'name')
+      );
+    end if;
+  end loop;
+
+  for v_player in
+    select * from jsonb_array_elements(v_trade.receive_players)
+  loop
+    if not exists (
+      select 1
+      from jsonb_array_elements(v_to.roster) p
+      where (p->>'id')::int = (v_player->>'id')::int
+    ) then
+      update trade_proposals
+      set
+        status = 'invalid',
+        invalid_reason =
+          'You no longer own ' || (v_player->>'name'),
+        resolved_at = now()
+      where id = p_trade_id;
+
+      update rooms
+      set
+        status = 'nominating',
+        active_trade_id = null
+      where id = v_trade.room_id;
+
+      return jsonb_build_object(
+        'ok', false,
+        'error',
+        'You no longer own ' || (v_player->>'name')
+      );
+    end if;
+  end loop;
+
+  if v_from.budget < v_trade.give_cash then
+    update trade_proposals
+    set
+      status = 'invalid',
+      invalid_reason = 'Sender no longer has enough budget',
+      resolved_at = now()
+    where id = p_trade_id;
+
+    update rooms
+    set
+      status = 'nominating',
+      active_trade_id = null
+    where id = v_trade.room_id;
+
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'Sender no longer has enough budget'
+    );
+  end if;
+
+  if v_to.budget < v_trade.receive_cash then
+    update trade_proposals
+    set
+      status = 'invalid',
+      invalid_reason = 'You no longer have enough budget',
+      resolved_at = now()
+    where id = p_trade_id;
+
+    update rooms
+    set
+      status = 'nominating',
+      active_trade_id = null
+    where id = v_trade.room_id;
+
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'You no longer have enough budget'
+    );
+  end if;
+
+  select coalesce(jsonb_agg(p), '[]'::jsonb)
+  into v_from_new_roster
+  from jsonb_array_elements(v_from.roster) p
+  where not exists (
+    select 1
+    from jsonb_array_elements(v_trade.give_players) g
+    where (g->>'id')::int = (p->>'id')::int
+  );
+
+  v_from_new_roster :=
+    v_from_new_roster || v_trade.receive_players;
+
+  select coalesce(jsonb_agg(p), '[]'::jsonb)
+  into v_to_new_roster
+  from jsonb_array_elements(v_to.roster) p
+  where not exists (
+    select 1
+    from jsonb_array_elements(v_trade.receive_players) g
+    where (g->>'id')::int = (p->>'id')::int
+  );
+
+  v_to_new_roster :=
+    v_to_new_roster || v_trade.give_players;
+
+  v_from_new_budget :=
+    v_from.budget
+    - v_trade.give_cash
+    + v_trade.receive_cash;
+
+  v_to_new_budget :=
+    v_to.budget
+    - v_trade.receive_cash
+    + v_trade.give_cash;
+
+  if jsonb_array_length(v_from_new_roster) > v_roster_size
+     or jsonb_array_length(v_to_new_roster) > v_roster_size then
+    update trade_proposals
+    set
+      status = 'invalid',
+      invalid_reason = 'Trade would exceed roster size',
+      resolved_at = now()
+    where id = p_trade_id;
+
+    update rooms
+    set
+      status = 'nominating',
+      active_trade_id = null
+    where id = v_trade.room_id;
+
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'Trade would exceed roster size'
+    );
+  end if;
+
+  if v_from_new_budget <
+       (v_roster_size - jsonb_array_length(v_from_new_roster))
+     or
+     v_to_new_budget <
+       (v_roster_size - jsonb_array_length(v_to_new_roster)) then
+
+    update trade_proposals
+    set
+      status = 'invalid',
+      invalid_reason =
+        'Trade would leave a roster unable to fill remaining slots',
+      resolved_at = now()
+    where id = p_trade_id;
+
+    update rooms
+    set
+      status = 'nominating',
+      active_trade_id = null
+    where id = v_trade.room_id;
+
+    return jsonb_build_object(
+      'ok', false,
+      'error',
+      'Trade would leave a roster unable to fill remaining slots'
+    );
+  end if;
+
+  update room_participants
+  set
+    budget = v_from_new_budget,
+    roster = v_from_new_roster
+  where room_id = v_trade.room_id
+    and user_id = v_trade.from_user_id;
+
+  update room_participants
+  set
+    budget = v_to_new_budget,
+    roster = v_to_new_roster
+  where room_id = v_trade.room_id
+    and user_id = v_trade.to_user_id;
+
+  update trade_proposals
+  set
+    status = 'accepted',
+    resolved_at = now()
+  where id = p_trade_id;
+
+  v_order := v_room.nominator_order;
+  v_len := array_length(v_order, 1);
+  v_next_idx := v_room.current_nominator_index;
+
+  for v_i in 1..v_len loop
+    v_next_idx :=
+      (v_next_idx + 1) % v_len;
+
+    v_candidate :=
+      v_order[v_next_idx + 1];
+
+    select
+      coalesce(jsonb_array_length(roster), 0)
+    into v_candidate_roster_len
+    from room_participants
+    where room_id = v_trade.room_id
+      and user_id = v_candidate;
+
+    if v_candidate_roster_len < v_roster_size then
+      v_done := false;
+      exit;
+    end if;
+  end loop;
+
+  update rooms
+  set
+    status =
+      case
+        when v_done then 'complete'
+        else 'nominating'
+      end,
+    current_nominator_index = v_next_idx,
+    active_trade_id = null
+  where id = v_trade.room_id;
+
+  return jsonb_build_object(
+    'ok', true
+  );
+end;
+$$;
+
+grant execute on function accept_trade_proposal(uuid)
+to authenticated;
+
+
+create or replace function decline_trade_proposal(
+  p_trade_id uuid
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_trade trade_proposals%rowtype;
+  v_room rooms%rowtype;
+begin
+  select *
+  into v_trade
+  from trade_proposals
+  where id = p_trade_id
+  for update;
+
+  if not found then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'Trade not found'
+    );
+  end if;
+
+  if v_trade.status <> 'pending' then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'This trade is no longer pending'
+    );
+  end if;
+
+  if auth.uid() is distinct from v_trade.to_user_id then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'Only the recipient can decline this trade'
+    );
+  end if;
+
+  select *
+  into v_room
+  from rooms
+  where id = v_trade.room_id
+  for update;
+
+  if v_room.active_trade_id is distinct from p_trade_id then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'This trade is no longer active'
+    );
+  end if;
+
+  update trade_proposals
+  set
+    status = 'declined',
+    resolved_at = now()
+  where id = p_trade_id;
+
+  update rooms
+  set
+    status = 'nominating',
+    active_trade_id = null
+  where id = v_trade.room_id;
+
+  return jsonb_build_object(
+    'ok', true
+  );
+end;
+$$;
+
+grant execute on function decline_trade_proposal(uuid)
+to authenticated;
+
+
+create or replace function cancel_trade_proposal(
+  p_trade_id uuid
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_trade trade_proposals%rowtype;
+  v_room rooms%rowtype;
+begin
+  select *
+  into v_trade
+  from trade_proposals
+  where id = p_trade_id
+  for update;
+
+  if not found then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'Trade not found'
+    );
+  end if;
+
+  if v_trade.status <> 'pending' then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'This trade is no longer pending'
+    );
+  end if;
+
+  if auth.uid() is distinct from v_trade.from_user_id then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'Only the sender can cancel this trade'
+    );
+  end if;
+
+  select *
+  into v_room
+  from rooms
+  where id = v_trade.room_id
+  for update;
+
+  if v_room.active_trade_id is distinct from p_trade_id then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'This trade is no longer active'
+    );
+  end if;
+
+  update trade_proposals
+  set
+    status = 'cancelled',
+    resolved_at = now()
+  where id = p_trade_id;
+
+  update rooms
+  set
+    status = 'nominating',
+    active_trade_id = null
+  where id = v_trade.room_id;
+
+  return jsonb_build_object(
+    'ok', true
+  );
+end;
+$$;
+
+grant execute on function cancel_trade_proposal(uuid)
+to authenticated;
