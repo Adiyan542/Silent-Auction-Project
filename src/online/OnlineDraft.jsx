@@ -8,6 +8,7 @@ import { AlarmClockTimer } from '../components/AlarmClockTimer';
 import BouncingBasketball from '../components/BouncingBasketball';
 import { getSoundEnabled, setSoundEnabled, startElevatorMusic, stopElevatorMusic,} from '../lib/sound';
 import {TradeProposalCard, TradeProposalComposer, TradeProposalLive,} from './TradeProposal';
+import TradeActivity from './TradeActivity';
 
 
 const PANDORA_ELIGIBLE_AFTER = 12;
@@ -760,6 +761,11 @@ export default function OnlineDraft({ session, roomId, onExit }) {
                 </div>
               </div>
             )}
+
+            <TradeActivity
+              roomId={roomId}
+              participants={participants}
+            />
     
             {/* Mobile My Lineup */}
             <div className="lg:hidden mb-4">
@@ -1069,6 +1075,12 @@ export default function OnlineDraft({ session, roomId, onExit }) {
               </div>
             </div>
           )}
+
+          <TradeActivity
+            roomId={roomId}
+            participants={participants}
+          />
+
           <div className="lg:hidden mb-4">
             <button
               type="button"
@@ -1357,6 +1369,12 @@ export default function OnlineDraft({ session, roomId, onExit }) {
               </div>
             </div>
           )}
+
+          <TradeActivity
+            roomId={roomId}
+            participants={participants}
+          />
+
 
           <div className="lg:hidden mb-4">
             <button
