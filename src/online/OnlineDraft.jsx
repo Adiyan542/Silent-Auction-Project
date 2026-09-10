@@ -696,13 +696,246 @@ export default function OnlineDraft({ session, roomId, onExit }) {
 
   if (room.status === 'nominating') {
     if (!myTurn) {
-      const nominatorName = participants.find((p) => p.user_id === room.nominator_order[room.current_nominator_index])?.display_name;
+      const nominatorName = participants.find(
+        (p) =>
+          p.user_id ===
+          room.nominator_order[room.current_nominator_index]
+      )?.display_name;
+    
       return (
-        <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6">
-          <p className="text-slate-400 text-lg">Waiting for <span className="text-white font-bold">{nominatorName}</span> to nominate a player…</p>
+        <div className="min-h-screen bg-slate-950 text-white p-4">
+          <div className="max-w-5xl mx-auto">
+    
+            {/* Top controls */}
+            <div className="flex justify-end items-center gap-2 mb-4">
+              <DeleteRoomButton />
+    
+              <button
+                type="button"
+                onClick={toggleSound}
+                className="px-3 py-2 rounded-lg bg-slate-900 border border-slate-800 text-xs font-bold text-slate-300 hover:text-white transition"
+              >
+                {soundEnabled ? '🔊 SOUND ON' : '🔇 SOUND OFF'}
+              </button>
+            </div>
+    
+            {/* Draft Board */}
+            {room.draft_log?.length > 0 && (
+              <div className="mb-6">
+                <h3 className="font-bold text-slate-500 text-xs uppercase tracking-widest mb-3">
+                  Draft Board
+                </h3>
+    
+                <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 snap-x snap-mandatory">
+                  {room.draft_log.map((entry, idx) => (
+                    <div
+                      key={entry.id}
+                      className={`snap-start shrink-0 w-48 flex flex-col justify-between p-3 rounded-xl border text-sm ${
+                        idx === 0
+                          ? 'bg-emerald-900/20 border-emerald-500/50'
+                          : 'bg-slate-900 border-slate-800'
+                      }`}
+                    >
+                      <p className="text-white font-semibold truncate">
+                        {entry.playerName}
+                      </p>
+    
+                      <div className="flex justify-between items-end mt-2">
+                        <span
+                          className={`text-xs truncate pr-2 ${
+                            entry.winnerUserId === myId
+                              ? 'text-blue-400 font-bold'
+                              : 'text-slate-500'
+                          }`}
+                        >
+                          {entry.winnerName}
+                        </span>
+    
+                        <span className="text-emerald-400 font-mono font-bold text-base">
+                          ${entry.amount}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+    
+            {/* Mobile My Lineup */}
+            <div className="lg:hidden mb-4">
+              <button
+                type="button"
+                onClick={() =>
+                  setShowMyLineup((prev) => !prev)
+                }
+                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 flex items-center justify-between"
+              >
+                <span className="text-white font-bold text-sm">
+                  MY LINEUP
+                </span>
+    
+                <span className="text-slate-400 text-sm">
+                  {(me.roster?.length ?? 0)}/{rosterSize}{' '}
+                  {showMyLineup ? '▲' : '▼'}
+                </span>
+              </button>
+    
+              {showMyLineup && (
+                <div className="mt-3">
+                  <YourLineup
+                    roster={me.roster ?? []}
+                    budget={me.budget}
+                  />
+                </div>
+              )}
+            </div>
+    
+            {/* Main draft room */}
+            <div className="grid grid-cols-1 lg:grid-cols-[1.35fr_2fr_1fr] gap-6">
+    
+              {/* Your Lineup - Desktop */}
+              <div className="hidden lg:block">
+                <YourLineup
+                  roster={me.roster ?? []}
+                  budget={me.budget}
+                />
+              </div>
+    
+              {/* Center Stage */}
+              <div className="space-y-6">
+                <div className="bg-slate-900 border border-slate-800 p-8 sm:p-12 rounded-3xl text-center">
+    
+                  <div className="inline-flex items-center gap-2 bg-blue-500/10 border border-blue-500/30 rounded-full px-4 py-2 mb-6">
+                    <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+    
+                    <span className="text-blue-300 text-xs font-black uppercase tracking-widest">
+                      Nomination In Progress
+                    </span>
+                  </div>
+    
+                  <h2 className="text-3xl sm:text-4xl font-black text-white mb-3">
+                    {nominatorName} is on the clock
+                  </h2>
+    
+                  <p className="text-slate-400 mb-8">
+                    Choosing the next player to put up for auction...
+                  </p>
+    
+                  <div className="bg-slate-950/70 border border-slate-800 rounded-2xl p-5 max-w-md mx-auto">
+                    <p className="text-slate-500 text-xs uppercase tracking-widest font-bold mb-2">
+                      While You Wait
+                    </p>
+    
+                    <p className="text-slate-300 text-sm">
+                      Check your lineup, scout other managers,
+                      compare budgets, and review previous picks.
+                    </p>
+                  </div>
+                </div>
+              </div>
+    
+              {/* Live Rosters */}
+              <div className="space-y-4 max-h-screen overflow-y-auto pr-2">
+                <h3 className="font-bold text-slate-500 text-xs uppercase tracking-widest">
+                  Live Rosters
+                </h3>
+    
+                {participants.map((p) => {
+                  const isExpanded =
+                    expandedRosterIds.has(p.user_id);
+    
+                  return (
+                    <div
+                      key={p.user_id}
+                      className={`p-4 rounded-xl border ${
+                        p.user_id === myId
+                          ? 'bg-blue-900/20 border-blue-500'
+                          : 'bg-slate-900 border-slate-800'
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() =>
+                          toggleRosterExpanded(p.user_id)
+                        }
+                        className="w-full text-left"
+                      >
+                        <div className="flex justify-between items-center">
+                          <span className="font-bold text-sm">
+                            {p.display_name}{' '}
+                            {p.user_id === myId && '(You)'}
+                          </span>
+    
+                          <div className="flex items-center gap-2">
+                            <span className="text-emerald-400 font-mono text-sm">
+                              ${p.budget}
+                            </span>
+    
+                            <span className="text-slate-500 text-xs">
+                              {isExpanded ? '▲' : '▼'}
+                            </span>
+                          </div>
+                        </div>
+    
+                        {!isExpanded && (
+                          <>
+                            <div className="flex flex-wrap gap-1 mt-2">
+                              {(p.roster ?? []).map(
+                                (player, i) => (
+                                  <div
+                                    key={i}
+                                    className="text-[10px] bg-slate-800 px-2 py-1 rounded text-slate-300 border border-slate-700"
+                                    title={`${player.name} ($${player.cost})`}
+                                  >
+                                    {player.name
+                                      .split(' ')
+                                      .pop()}
+                                  </div>
+                                )
+                              )}
+    
+                              {(!p.roster ||
+                                p.roster.length === 0) && (
+                                <div className="text-[10px] text-slate-600 italic">
+                                  Empty Roster
+                                </div>
+                              )}
+                            </div>
+    
+                            <div className="text-[10px] text-slate-600 mt-2">
+                              {p.roster?.length ?? 0}/
+                              {rosterSize} slots filled
+                            </div>
+                          </>
+                        )}
+                      </button>
+    
+                      {isExpanded && (
+                        <div className="mt-3">
+                          <YourLineup
+                            roster={p.roster ?? []}
+                            budget={p.budget}
+                            title={
+                              p.user_id === myId
+                                ? 'Your Lineup'
+                                : `${p.display_name}'s Lineup`
+                            }
+                            compact
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+    
+            </div>
+          </div>
         </div>
       );
     }
+
+
     return (
       <div className="min-h-screen bg-slate-900 p-6">
         <div className="max-w-4xl mx-auto">
