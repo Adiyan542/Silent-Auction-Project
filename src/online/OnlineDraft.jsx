@@ -1006,10 +1006,98 @@ export default function OnlineDraft({ session, roomId, onExit }) {
                   key={player.id}
                   type="button"
                   onClick={() => nominatePlayer(player)}
-                  className="w-full bg-slate-800 p-4 rounded-xl border border-slate-700 flex justify-between items-center group hover:border-blue-500 active:border-blue-400 transition text-left touch-manipulation"
+                  className="relative w-full bg-slate-800 p-4 pr-16 rounded-xl border border-slate-700 group hover:border-blue-500 active:border-blue-400 transition text-left touch-manipulation"
                 >
-                  <h4 className="text-white font-bold text-lg">{player.name}</h4>
-                  <span className="p-2 bg-blue-600 rounded-lg text-white opacity-100 md:opacity-0 md:group-hover:opacity-100 transition">
+                  <div className="min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h4 className="text-white font-bold text-lg truncate">
+                          {player.name}
+                        </h4>
+
+                        <span className="text-[10px] font-bold text-slate-500 uppercase">
+                          {player.positions?.join('/')}
+                        </span>
+                      </div>
+
+                      {player.stats && (
+                        <div className="grid grid-cols-4 gap-x-3 gap-y-2 mt-3">
+                          <div>
+                            <p className="text-[10px] text-slate-500 uppercase font-bold">
+                              PTS
+                            </p>
+                            <p className="text-sm text-white font-mono">
+                              {player.stats.points}
+                            </p>
+                          </div>
+
+                          <div>
+                            <p className="text-[10px] text-slate-500 uppercase font-bold">
+                              REB
+                            </p>
+                            <p className="text-sm text-white font-mono">
+                              {player.stats.rebounds}
+                            </p>
+                          </div>
+
+
+                          <div>
+                            <p className="text-[10px] text-slate-500 uppercase font-bold">
+                              AST
+                            </p>
+                            <p className="text-sm text-white font-mono">
+                              {player.stats.assists}
+                            </p>
+                          </div>
+
+                          <div>
+                            <p className="text-[10px] text-slate-500 uppercase font-bold">
+                              STL
+                            </p>
+                            <p className="text-sm text-white font-mono">
+                              {player.stats.steals}
+                            </p>
+                          </div>
+
+                          <div>
+                            <p className="text-[10px] text-slate-500 uppercase font-bold">
+                              BLK
+                            </p>
+                            <p className="text-sm text-white font-mono">
+                              {player.stats.blocks}
+                            </p>
+                          </div>
+
+                          <div>
+                            <p className="text-[10px] text-slate-500 uppercase font-bold">
+                              TOV
+                            </p>
+                            <p className="text-sm text-white font-mono">
+                              {player.stats.turnovers}
+                            </p>
+                          </div>
+
+                          <div>
+                            <p className="text-[10px] text-slate-500 uppercase font-bold">
+                              FG%
+                            </p>
+                            <p className="text-sm text-white font-mono">
+                              {player.stats.fgPct}%
+                            </p>
+                          </div>
+
+                          <div>
+                            <p className="text-[10px] text-slate-500 uppercase font-bold">
+                              FT%
+                            </p>
+                            <p className="text-sm text-white font-mono">
+                              {player.stats.ftPct}%
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                  <span className="absolute top-4 right-4 p-2 bg-blue-600 rounded-lg text-white opacity-100 md:opacity-0 md:group-hover:opacity-100 transition">
                     <PlusCircle />
                   </span>
                 </button>
