@@ -9,6 +9,7 @@ import BouncingBasketball from '../components/BouncingBasketball';
 import { getSoundEnabled, setSoundEnabled, startElevatorMusic, stopElevatorMusic,} from '../lib/sound';
 import {TradeProposalCard, TradeProposalComposer, TradeProposalLive,} from './TradeProposal';
 import TradeActivity from './TradeActivity';
+import SoundBoard from './SoundBoard';
 
 
 const PANDORA_ELIGIBLE_AFTER = 12;
@@ -35,6 +36,8 @@ export default function OnlineDraft({ session, roomId, onExit }) {
   const [expandedRosterIds, setExpandedRosterIds] = useState(new Set());
   const [composingTrade, setComposingTrade] = useState(false);
   const [activeTrade, setActiveTrade] = useState(null);
+
+
 
 
 // --- Trade Proposal realtime subscription ---
@@ -351,6 +354,12 @@ export default function OnlineDraft({ session, roomId, onExit }) {
   };
 
   const myTurn = room?.status === 'nominating' && room.nominator_order[room.current_nominator_index] === myId;
+
+  const showSoundBoard =
+  room?.status === 'bidding' ||
+  room?.status === 'results' ||
+  (room?.status === 'nominating' && !myTurn);
+
   const iAmEligibleToBid = !room?.tie_eligible_ids || room.tie_eligible_ids.includes(myId);
 
   const getMaxBid = (p) => {
@@ -718,6 +727,13 @@ export default function OnlineDraft({ session, roomId, onExit }) {
               >
                 {soundEnabled ? '🔊 SOUND ON' : '🔇 SOUND OFF'}
               </button>
+              {showSoundBoard && (
+                <SoundBoard
+                  roomId={roomId}
+                  myId={myId}
+                  soundEnabled={soundEnabled}
+                />
+              )}
             </div>
     
             {/* Draft Board */}
@@ -1145,6 +1161,14 @@ export default function OnlineDraft({ session, roomId, onExit }) {
             >
               {soundEnabled ? '🔊 SOUND ON' : '🔇 SOUND OFF'}
             </button>
+
+            {showSoundBoard && (
+              <SoundBoard
+                roomId={roomId}
+                myId={myId}
+                soundEnabled={soundEnabled}
+              />
+            )}  
         </div>
 
           {room.draft_log?.length > 0 && (
@@ -1438,9 +1462,26 @@ export default function OnlineDraft({ session, roomId, onExit }) {
     return (
       <div className="min-h-screen bg-slate-950 text-white p-4">
         <div className="max-w-5xl mx-auto">
-          <div className="flex justify-end mb-4">
+          <div className="flex justify-end items-center gap-2 mb-4">
             <DeleteRoomButton />
+
+            <button
+              type="button"
+              onClick={toggleSound}
+              className="px-3 py-2 rounded-lg bg-slate-900 border border-slate-800 text-xs font-bold text-slate-300 hover:text-white transition"
+            >
+              {soundEnabled ? '🔊 SOUND ON' : '🔇 SOUND OFF'}
+            </button>
+
+            {showSoundBoard && (
+              <SoundBoard
+                roomId={roomId}
+                myId={myId}
+                soundEnabled={soundEnabled}
+              />
+            )}
           </div>
+          
           {room.draft_log?.length > 0 && (
             <div className="mb-6">
               <h3 className="font-bold text-slate-500 text-xs uppercase tracking-widest mb-3">Draft Board</h3>
