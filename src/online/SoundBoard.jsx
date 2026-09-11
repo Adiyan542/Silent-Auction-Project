@@ -26,7 +26,23 @@ const SOUNDS = [
     label: 'Anime Wow',
     icon: '😲',
     file: '/sounds/animewow.mp3',
+
   },
+
+  {
+    id: 'omgbruh',
+    label: 'OMG Bruh',
+    icon: '🤦',
+    file: '/sounds/omgbruh.mp3',
+  },
+
+  {
+    id: 'gahdaym',
+    label: 'GAH DAYM',
+    icon: '😩',
+    file: '/sounds/gahdayum.mp3',
+  },
+
 ];
 
 export default function SoundBoard({
