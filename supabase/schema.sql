@@ -26,7 +26,7 @@ create table if not exists rooms (
     -- bidders); budgets/rosters are already updated, but the room stays
     -- parked here — showing the winner and every bid — until the HOST
     -- clicks Continue. This intentionally does not auto-advance.
-  settings jsonb not null default '{"budget":200,"roster_size":13,"auction_time":25}',
+  settings jsonb not null default '{"budget":200,"roster_size":13,"auction_time":60}',
   nominator_order uuid[] not null default '{}',
   current_nominator_index int not null default 0,
   current_player jsonb,               -- {id, name, rating}

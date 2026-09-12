@@ -273,7 +273,7 @@ Deno.serve(async (req) => {
           tie_eligible_ids: tiedTop.map((b) => b.participant.user_id),
           tie_redo_count: room.tie_redo_count + 1,
           auction_deadline: new Date(
-            Date.now() + (room.settings?.auction_time ?? 30) * 1000
+            Date.now() + (room.settings?.auction_time ?? 60) * 1000
           ).toISOString(),
         })
         .eq('id', room_id)
