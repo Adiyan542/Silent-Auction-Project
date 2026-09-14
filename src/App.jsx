@@ -15,7 +15,7 @@ function App() {
       <div className="bg-slate-800 p-8 rounded-2xl w-full max-w-md border border-slate-700 shadow-2xl">
 
         <h1 className="text-3xl font-black text-white text-center mb-2 tracking-tighter">
-          SILENT BID AUCTION
+          BLIND BID AUCTION
         </h1>
 
         <p className="text-slate-400 text-center text-sm mb-8">
