@@ -3,7 +3,12 @@ import { Crown, UserPlus } from 'lucide-react';
 
 export default function OnlineEntry({ onChooseHost, onChooseGuest, onExit }) {
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+    <div 
+      className="min-h-screen bg-cover bg-center bg-no-repeat flex items-center justify-center p-4"
+      style={{
+        backgroundImage: "url('/images/home.jpg')",
+      }}
+    >
       <div className="bg-slate-800 p-8 rounded-2xl w-full max-w-md border border-slate-700 shadow-2xl">
         <button onClick={onExit} className="text-slate-500 text-xs mb-4 hover:text-slate-300">&larr; Back</button>
         <h1 className="text-2xl font-black text-white mb-1">Online Draft</h1>

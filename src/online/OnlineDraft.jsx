@@ -653,7 +653,12 @@ export default function OnlineDraft({ session, roomId, onExit }) {
 
   if (room.status === 'lobby') {
     return (
-      <div className="min-h-screen bg-slate-900 p-6 flex flex-col items-center">
+      <div 
+        className="min-h-screen bg-cover bg-center bg-no-repeat p-6 flex flex-col items-center"
+        style={{
+          backgroundImage: "url('/images/home.jpg')",
+        }}
+      >
         <div className="w-full max-w-2xl bg-slate-800 rounded-2xl p-6 border border-slate-700">
           
           <div className="flex items-center justify-between mb-4">

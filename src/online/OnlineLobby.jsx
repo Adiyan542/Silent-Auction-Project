@@ -79,7 +79,12 @@ export default function OnlineLobby({ session, profile, onEnterRoom, onExit , on
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+    <div 
+      className="min-h-screen bg-cover bg-center bg-no-repeat flex items-center justify-center p-4"
+      style={{
+        backgroundImage: "url('/images/home.jpg')",
+      }}
+    >
       <div className="bg-slate-800 p-8 rounded-2xl w-full max-w-md border border-slate-700 shadow-2xl">
         <div className="flex items-center justify-between mb-4">
           <button
