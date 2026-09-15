@@ -6,7 +6,7 @@ const genRoomCode = () =>
 
 // Handles both creating a new room and joining an existing one by code.
 // Calls onEnterRoom(roomId) once the person has successfully joined.
-export default function OnlineLobby({ session, profile, onEnterRoom, onExit }) {
+export default function OnlineLobby({ session, profile, onEnterRoom, onExit , onLogout}) {
   const [joinCode, setJoinCode] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -81,7 +81,23 @@ export default function OnlineLobby({ session, profile, onEnterRoom, onExit }) {
   return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
       <div className="bg-slate-800 p-8 rounded-2xl w-full max-w-md border border-slate-700 shadow-2xl">
-        <button onClick={onExit} className="text-slate-500 text-xs mb-4 hover:text-slate-300">&larr; Back</button>
+        <div className="flex items-center justify-between mb-4">
+          <button
+            type="button"
+            onClick={onExit}
+            className="text-slate-500 text-xs hover:text-slate-300"
+          >
+            &larr; Back
+          </button>
+
+          <button
+            type="button"
+            onClick={onLogout}
+            className="text-red-400 text-xs font-bold hover:text-red-300 transition"
+          >
+            LOG OUT
+          </button>
+        </div>
         <h1 className="text-2xl font-black text-white mb-1">Online Draft</h1>
         <p className="text-slate-400 text-sm mb-6">Signed in as {profile.display_name}</p>
 

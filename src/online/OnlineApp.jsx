@@ -66,6 +66,21 @@ export default function OnlineApp({ onExit }) {
     setView('entry');
   };
 
+  const logout = async () => {
+    localStorage.removeItem(STORAGE_KEY);
+  
+    const { error } = await supabase.auth.signOut();
+  
+    if (error) {
+      console.error('Logout failed:', error);
+      return;
+    }
+  
+    setSession(null);
+    setRoomId(null);
+    setView('entry');
+  };
+
   if (view === 'checking') {
     return <div className="min-h-screen bg-slate-900 flex items-center justify-center text-slate-500">Loading…</div>;
   }
@@ -93,6 +108,7 @@ export default function OnlineApp({ onExit }) {
             profile={profile}
             onEnterRoom={enterRoom}
             onExit={() => setView('entry')}
+            onLogout={logout}
           />
         )}
       </AuthGate>
