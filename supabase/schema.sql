@@ -927,3 +927,68 @@ $$;
 
 grant execute on function cancel_trade_proposal(uuid)
 to authenticated;
+
+
+-- ---------- Room Chat ----------
+
+create table if not exists room_messages (
+  id uuid primary key default gen_random_uuid(),
+  room_id uuid not null references rooms(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  display_name text not null,
+  message text not null check (
+    char_length(message) > 0 and char_length(message) <= 300
+  ),
+  created_at timestamptz not null default now()
+);
+
+-- Speeds up "last ~100 messages for this room" lookups.
+create index if not exists room_messages_room_id_created_at_idx
+  on room_messages (room_id, created_at desc);
+
+alter table room_messages enable row level security;
+
+-- Only participants of the room can read its messages.
+create policy "room messages readable by room participants"
+  on room_messages
+  for select
+  using (
+    public.is_room_participant(room_id)
+  );
+
+-- You can only send as yourself, in a room you're actually in, and the
+-- display_name you send must match your real participant row — prevents
+-- spoofing someone else's name in chat.
+create policy "room participants can send messages as themselves"
+  on room_messages
+  for insert
+  with check (
+    auth.uid() = user_id
+    and exists (
+      select 1 from room_participants rp
+      where rp.room_id = room_messages.room_id
+        and rp.user_id = auth.uid()
+        and rp.display_name = room_messages.display_name
+    )
+  );
+
+-- No update/delete policies on purpose: chat messages are immutable.
+
+-- Realtime: expose room_messages to Supabase Realtime.
+-- Idempotent: safe to rerun even if room_messages is already in the
+-- publication (a plain `alter publication ... add table` errors on rerun
+-- with "relation ... is already member of publication").
+-- (Dashboard equivalent: Database -> Replication -> toggle room_messages on,
+-- if this block doesn't already cover it.)
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'room_messages'
+  ) then
+    alter publication supabase_realtime add table room_messages;
+  end if;
+end $$;

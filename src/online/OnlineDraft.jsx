@@ -10,6 +10,7 @@ import { getSoundEnabled, setSoundEnabled, startElevatorMusic, stopElevatorMusic
 import {TradeProposalCard, TradeProposalComposer, TradeProposalLive,} from './TradeProposal';
 import TradeActivity from './TradeActivity';
 import SoundBoard from './SoundBoard';
+import Chat from './Chat';
 
 
 const PANDORA_ELIGIBLE_AFTER = 12;
@@ -734,6 +735,12 @@ export default function OnlineDraft({ session, roomId, onExit }) {
                   soundEnabled={soundEnabled}
                 />
               )}
+
+              <Chat
+                roomId={roomId}
+                myId={myId}
+                displayName={me?.display_name}
+              />
             </div>
     
             {/* Draft Board */}
@@ -960,6 +967,13 @@ export default function OnlineDraft({ session, roomId, onExit }) {
 
     return (
       <div className="min-h-screen bg-slate-900 p-6">
+        <div className="fixed top-4 right-4 z-40">
+          <Chat
+            roomId={roomId}
+            myId={myId}
+            displayName={me?.display_name}
+          />
+        </div>
         <div className="max-w-4xl mx-auto">
           <header className="mb-8 flex justify-between items-end">
             <div>
@@ -1169,6 +1183,12 @@ export default function OnlineDraft({ session, roomId, onExit }) {
                 soundEnabled={soundEnabled}
               />
             )}  
+
+            <Chat
+              roomId={roomId}
+              myId={myId}
+              displayName={me?.display_name}
+            />
         </div>
 
           {room.draft_log?.length > 0 && (
@@ -1480,6 +1500,12 @@ export default function OnlineDraft({ session, roomId, onExit }) {
                 soundEnabled={soundEnabled}
               />
             )}
+
+            <Chat
+              roomId={roomId}
+              myId={myId}
+              displayName={me?.display_name}
+            /> 
           </div>
           
           {room.draft_log?.length > 0 && (
