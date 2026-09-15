@@ -992,3 +992,192 @@ begin
     alter publication supabase_realtime add table room_messages;
   end if;
 end $$;
+
+-- ---------- Host Redo Auction (v1: normal player auctions only) ----------
+--
+-- Reverses the most recently completed normal player auction (still parked
+-- on the results screen, before the host has clicked Continue) and
+-- immediately restarts a fresh blind-bid round for the same player with a
+-- brand new auction_id, so no bids from the discarded round can leak in.
+--
+-- Host-only. Not available for Pandora's Box, no-sale, or auto-awarded
+-- results. Safe to call more than once / concurrently — see the locking
+-- and state-check strategy below.
+
+create or replace function redo_auction(p_room_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_room rooms%rowtype;
+  v_winner room_participants%rowtype;
+
+  v_player_id int;
+  v_player_name text;
+  v_winner_user_id uuid;
+  v_amount int;
+
+  v_log_len int;
+  v_draft_log_entry jsonb;   -- draft_log[1] — jsonb[] is 1-indexed in Postgres
+
+  v_roster_match_count int;
+  v_new_roster jsonb;
+  v_new_drafted_ids int[];
+  v_new_draft_log jsonb[];
+  v_new_auction_id text;
+  v_auction_seconds int;
+begin
+  select * into v_room
+  from rooms
+  where id = p_room_id
+  for update;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'Room not found');
+  end if;
+
+  if auth.uid() is distinct from v_room.host_id then
+    return jsonb_build_object('ok', false, 'error', 'Only the host can redo this auction');
+  end if;
+
+  if v_room.status <> 'results' then
+    return jsonb_build_object('ok', false, 'error', 'This auction is no longer on the results screen');
+  end if;
+
+  if v_room.current_player is null then
+    return jsonb_build_object('ok', false, 'error', 'No current auction to redo');
+  end if;
+
+  if coalesce((v_room.current_player->>'isPandora')::boolean, false) then
+    return jsonb_build_object('ok', false, 'error', "Pandora's Box auctions cannot be redone");
+  end if;
+
+  if v_room.results is null then
+    return jsonb_build_object('ok', false, 'error', 'No result to redo');
+  end if;
+
+  if coalesce((v_room.results->>'isPandora')::boolean, false) then
+    return jsonb_build_object('ok', false, 'error', "Pandora's Box auctions cannot be redone");
+  end if;
+
+  if coalesce((v_room.results->>'noSale')::boolean, false) then
+    return jsonb_build_object('ok', false, 'error', 'No-sale results cannot be redone');
+  end if;
+
+  if coalesce((v_room.results->>'autoAwarded')::boolean, false) then
+    return jsonb_build_object('ok', false, 'error', 'Auto-awarded results cannot be redone yet');
+  end if;
+
+  v_player_id := (v_room.current_player->>'id')::int;
+  v_player_name := v_room.current_player->>'name';
+  v_winner_user_id := (v_room.results->>'winnerUserId')::uuid;
+  v_amount := (v_room.results->>'amount')::int;
+
+  if v_player_id is null or v_player_name is null
+     or v_winner_user_id is null or v_amount is null
+  then
+    return jsonb_build_object('ok', false, 'error', 'Result is missing data needed to redo');
+  end if;
+
+  if v_room.results->>'playerName' is distinct from v_player_name then
+    return jsonb_build_object('ok', false, 'error', 'Result does not match the current player; cannot safely redo');
+  end if;
+
+  -- drafted_player_ids: the player being redone must be the most recently
+  -- drafted one.
+  if v_room.drafted_player_ids is null
+     or array_length(v_room.drafted_player_ids, 1) is null
+     or v_room.drafted_player_ids[array_length(v_room.drafted_player_ids, 1)] <> v_player_id
+  then
+    return jsonb_build_object('ok', false, 'error', 'Draft state does not match this result; cannot safely redo');
+  end if;
+
+  -- draft_log is a jsonb[] and Postgres arrays are 1-indexed, so the
+  -- newest entry (unshifted to the front on every write) is draft_log[1].
+  v_log_len := array_length(v_room.draft_log, 1);
+
+  if v_room.draft_log is null or v_log_len is null then
+    return jsonb_build_object('ok', false, 'error', 'Draft log is empty; cannot safely redo');
+  end if;
+
+  v_draft_log_entry := v_room.draft_log[1];
+
+  if (v_draft_log_entry->>'id') !~ ('^' || v_player_id || '_')
+     or (v_draft_log_entry->>'playerName') is distinct from v_player_name
+     or (v_draft_log_entry->>'winnerUserId')::uuid is distinct from v_winner_user_id
+     or (v_draft_log_entry->>'amount')::int is distinct from v_amount
+  then
+    return jsonb_build_object('ok', false, 'error', 'Draft log does not match this result; cannot safely redo');
+  end if;
+
+  select * into v_winner
+  from room_participants
+  where room_id = p_room_id and user_id = v_winner_user_id
+  for update;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'Winning manager is no longer in this room');
+  end if;
+
+  -- Winner's roster must contain exactly one matching entry for this
+  -- player — not zero (already gone) and not more than one (would mean
+  -- duplicate/corrupt roster data), either of which makes it unsafe to
+  -- blindly strip an entry.
+  select count(*) into v_roster_match_count
+  from jsonb_array_elements(v_winner.roster) p
+  where (p->>'id')::int = v_player_id;
+
+  if v_roster_match_count <> 1 then
+    return jsonb_build_object(
+      'ok', false,
+      'error', format(
+        'Winner roster has %s matching entries for this player (expected exactly 1); aborting without changes',
+        v_roster_match_count
+      )
+    );
+  end if;
+
+  -- All checks passed — results, current_player, draft_log[1],
+  -- drafted_player_ids, and the winner's roster all consistently agree
+  -- on the same player/winner/amount. Safe to reverse.
+
+  select coalesce(jsonb_agg(p), '[]'::jsonb)
+  into v_new_roster
+  from jsonb_array_elements(v_winner.roster) p
+  where (p->>'id')::int <> v_player_id;
+
+  update room_participants
+  set budget = budget + v_amount,
+      roster = v_new_roster
+  where room_id = p_room_id and user_id = v_winner_user_id;
+
+  v_new_drafted_ids :=
+    v_room.drafted_player_ids[1 : array_length(v_room.drafted_player_ids, 1) - 1];
+
+  v_new_draft_log := v_room.draft_log[2 : v_log_len];
+
+  v_new_auction_id := gen_random_uuid()::text;
+  v_auction_seconds := coalesce((v_room.settings->>'auction_time')::int, 60);
+
+  update rooms
+  set
+    drafted_player_ids = v_new_drafted_ids,
+    draft_log = v_new_draft_log,
+    results = null,
+    tie_eligible_ids = null,
+    tie_redo_count = 0,
+    is_paused = false,
+    paused_seconds_left = null,
+    status = 'bidding',
+    current_player = current_player || jsonb_build_object('auction_id', v_new_auction_id),
+    auction_deadline = now() + (v_auction_seconds || ' seconds')::interval
+  where id = p_room_id
+    and status = 'results';
+
+  return jsonb_build_object('ok', true, 'new_auction_id', v_new_auction_id);
+end;
+$$;
+
+grant execute on function redo_auction(uuid) to authenticated;

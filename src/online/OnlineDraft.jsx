@@ -11,6 +11,7 @@ import {TradeProposalCard, TradeProposalComposer, TradeProposalLive,} from './Tr
 import TradeActivity from './TradeActivity';
 import SoundBoard from './SoundBoard';
 import Chat from './Chat';
+import RedoAuctionButton from './RedoAuctionButton';
 
 
 const PANDORA_ELIGIBLE_AFTER = 12;
@@ -231,7 +232,7 @@ export default function OnlineDraft({ session, roomId, onExit }) {
     setHasSubmittedBid(false);
     setResolveError(null);
     setSecondsSinceDeadline(0);
-  }, [room?.current_player?.id, room?.tie_redo_count]);
+  }, [room?.current_player?.id, room?.current_player?.auction_id, room?.tie_redo_count]);
 
   // --- Countdown + auto-resolve trigger ---
   useEffect(() => {
@@ -638,7 +639,9 @@ export default function OnlineDraft({ session, roomId, onExit }) {
     ...(shouldMakePandoraAvailable
       ? { pandora_available: true }
       : {}),
-  }).eq('id', roomId);
+  }).eq('id', roomId)
+    .eq('status', 'results');
+  
 };
 
   const copyRoomCode = () => navigator.clipboard.writeText(room.room_code);
@@ -1696,12 +1699,19 @@ export default function OnlineDraft({ session, roomId, onExit }) {
                 )}
 
                 {isHost ? (
+                  <div className="flex items-center justify-center gap-3">
+                    <RedoAuctionButton
+                      room={room}
+                      roomId={roomId}
+                      isHost={isHost}
+                    />
                   <button
                     onClick={advanceToNextNomination}
                     className="bg-white text-black px-10 py-3 rounded-full font-black uppercase tracking-widest hover:bg-slate-200 transition"
                   >
                     Continue
                   </button>
+                  </div>
                 ) : (
                   <p className="text-slate-500 text-sm">Waiting for the host to continue…</p>
                 )}
