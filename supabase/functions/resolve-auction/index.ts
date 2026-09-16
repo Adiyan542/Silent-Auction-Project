@@ -12,8 +12,9 @@
 //     (must leave at least $1 for every other empty roster slot)
 //   - minimum winning bid is $1 (nobody drafted for free)
 //   - a tie redoes the auction for the same player, tied bidders only,
-//     up to 3 times, then a coin flip breaks it
-//   - once resolved (winner, coin flip, or no-sale), the room moves to a
+//     up to 2 times; if the third tied outcome survives, the
+//     Final Tiebreaker Wheel decides the winner
+//   - once resolved (winner, wheel tiebreaker, or no-sale), the room moves to a
 //     'results' status showing the winner and every bid — it does NOT
 //     auto-advance. The host clicking Continue (handled client-side, not
 //     in this function) is what clears current_player and moves the turn
@@ -22,7 +23,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const ROSTER_SIZE_DEFAULT = 13;
-const MAX_TIE_REDOS = 3;
+const MAX_TIE_REDOS = 2;
 
 
 function rollPandoraOutcome(): number {
@@ -261,43 +262,87 @@ Deno.serve(async (req) => {
       });
     }
 
-    const tiedTop = eligibleBids.filter((b) => b.bid === topBid.bid);
-
-    if (tiedTop.length > 1 && room.tie_redo_count < MAX_TIE_REDOS) {
-      // Redo this exact player, tied bidders only. Stays in 'bidding' —
-      // a tie isn't a finished round, so there's nothing to show on a
-      // results screen yet.
-      const { error } = await supabase
-        .from('rooms')
-        .update({
-          tie_eligible_ids: tiedTop.map((b) => b.participant.user_id),
-          tie_redo_count: room.tie_redo_count + 1,
-          auction_deadline: new Date(
-            Date.now() + (room.settings?.auction_time ?? 60) * 1000
-          ).toISOString(),
-        })
-        .eq('id', room_id)
-        .eq('status', 'bidding');
-      if (error) return json({ error: error.message }, 500);
-      return json({ ok: true, tie: true });
-    }
-
-    // Unique winner, or tie survived 3 redos -> coin flip among the tied.
-    const winnerEntry =
-      tiedTop.length > 1
-        ? tiedTop[Math.floor(Math.random() * tiedTop.length)]
-        : topBid;
-    const winner = winnerEntry.participant;
-    const amount = winnerEntry.bid;
-
     const allBids = resolved
-      .filter((r) => r.eligible)
-      .map((r) => ({
-        name: r.participant.display_name,
-        userId: r.participant.user_id,
-        bid: r.bid,
-      }))
-      .sort((a, b) => b.bid - a.bid);
+    .filter((r) => r.eligible)
+    .map((r) => ({
+      name: r.participant.display_name,
+      userId: r.participant.user_id,
+      bid: r.bid,
+    }))
+    .sort((a, b) => b.bid - a.bid);
+  
+  const tiedTop = eligibleBids.filter(
+    (b) => b.bid === topBid.bid
+  );
+  
+  if (
+    tiedTop.length > 1 &&
+    room.tie_redo_count < MAX_TIE_REDOS
+  ) {
+    const { error } = await supabase
+      .from('rooms')
+      .update({
+        tie_eligible_ids: tiedTop.map(
+          (b) => b.participant.user_id
+        ),
+        tie_redo_count: room.tie_redo_count + 1,
+        auction_deadline: new Date(
+          Date.now() +
+            (room.settings?.auction_time ?? 60) * 1000
+        ).toISOString(),
+      })
+      .eq('id', room_id)
+      .eq('status', 'bidding');
+  
+    if (error) {
+      return json({ error: error.message }, 500);
+    }
+  
+    return json({
+      ok: true,
+      tie: true,
+    });
+  }
+  
+  if (tiedTop.length > 1 && !isPandora) {
+    const { error } = await supabase
+      .from('rooms')
+      .update({
+        auction_deadline: null,
+        status: 'tiebreaker_wheel',
+  
+        wheel_candidates: tiedTop.map((b) => ({
+          userId: b.participant.user_id,
+          displayName: b.participant.display_name,
+        })),
+  
+        wheel_tied_amount: topBid.bid,
+        wheel_all_bids: allBids,
+        wheel_winner_user_id: null,
+        wheel_spin_started_at: null,
+      })
+      .eq('id', room_id)
+      .eq('status', 'bidding');
+  
+    if (error) {
+      return json({ error: error.message }, 500);
+    }
+  
+    return json({
+      ok: true,
+      wheel: true,
+    });
+  }
+  
+  // Pandora can still fall back to random selection.
+  // Normal player ties never reach this point anymore.
+  const winnerEntry =
+    tiedTop.length > 1
+      ? tiedTop[Math.floor(Math.random() * tiedTop.length)]
+      : topBid;
+  
+  const winner = winnerEntry.participant;
+  const amount = winnerEntry.bid;
 
     if (isPandora) {
       const slotsLeft = rosterSize - (winner.roster?.length ?? 0);
@@ -401,7 +446,7 @@ Deno.serve(async (req) => {
       amount,
       winnerName: winner.display_name,
       winnerUserId: winner.user_id,
-      wasCoinFlip: tiedTop.length > 1,
+      wasCoinFlip: false,
     };
 
 
@@ -424,7 +469,7 @@ Deno.serve(async (req) => {
           winnerUserId: winner.user_id,
           amount,
           allBids,
-          wasCoinFlip: tiedTop.length > 1,
+          wasCoinFlip: false,
         },
       })
       .eq('id', room_id)

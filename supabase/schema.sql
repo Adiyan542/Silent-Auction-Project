@@ -1181,3 +1181,321 @@ end;
 $$;
 
 grant execute on function redo_auction(uuid) to authenticated;
+
+
+
+-- ---------- Final Tiebreaker Wheel ----------
+
+alter table rooms
+add column if not exists wheel_candidates jsonb;
+
+alter table rooms
+add column if not exists wheel_winner_user_id uuid;
+
+alter table rooms
+add column if not exists wheel_spin_started_at timestamptz;
+
+alter table rooms
+add column if not exists wheel_tied_amount int;
+
+alter table rooms
+add column if not exists wheel_all_bids jsonb;
+
+
+-- Host pulls the lever.
+-- Server randomly chooses the winner exactly once.
+create or replace function spin_tiebreaker_wheel(p_room_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_room rooms%rowtype;
+  v_count int;
+  v_idx int;
+  v_winner_candidate jsonb;
+  v_winner_user_id uuid;
+begin
+  select *
+  into v_room
+  from rooms
+  where id = p_room_id
+  for update;
+
+  if not found then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'Room not found'
+    );
+  end if;
+
+  if auth.uid() is distinct from v_room.host_id then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'Only the host can pull the lever'
+    );
+  end if;
+
+  if v_room.status <> 'tiebreaker_wheel' then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'The wheel is not active right now'
+    );
+  end if;
+
+  if v_room.wheel_winner_user_id is not null then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'The wheel has already been spun'
+    );
+  end if;
+
+  v_count :=
+    jsonb_array_length(
+      coalesce(v_room.wheel_candidates, '[]'::jsonb)
+    );
+
+  if v_count < 2 then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'Not enough tied candidates to spin'
+    );
+  end if;
+
+  v_idx := floor(random() * v_count)::int;
+
+  v_winner_candidate :=
+    v_room.wheel_candidates -> v_idx;
+
+  v_winner_user_id :=
+    (v_winner_candidate->>'userId')::uuid;
+
+  update rooms
+  set
+    wheel_winner_user_id = v_winner_user_id,
+    wheel_spin_started_at = now()
+  where id = p_room_id
+    and status = 'tiebreaker_wheel'
+    and wheel_winner_user_id is null;
+
+  return jsonb_build_object(
+    'ok', true,
+    'winnerUserId', v_winner_user_id
+  );
+end;
+$$;
+
+grant execute on function spin_tiebreaker_wheel(uuid)
+to authenticated;
+
+
+-- Finalize only AFTER the wheel has actually spun for 5 seconds.
+create or replace function finalize_tiebreaker_wheel(p_room_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_room rooms%rowtype;
+  v_winner room_participants%rowtype;
+
+  v_player_id int;
+  v_amount int;
+
+  v_new_roster jsonb;
+  v_all_bids jsonb;
+  v_log_entry jsonb;
+begin
+  select *
+  into v_room
+  from rooms
+  where id = p_room_id
+  for update;
+
+  if not found then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'Room not found'
+    );
+  end if;
+
+  if not public.is_room_participant(p_room_id) then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'Not a participant of this room'
+    );
+  end if;
+
+  if v_room.status <> 'tiebreaker_wheel' then
+    return jsonb_build_object(
+      'ok', true,
+      'skipped', 'not awaiting wheel finalize'
+    );
+  end if;
+
+  if v_room.wheel_winner_user_id is null then
+    return jsonb_build_object(
+      'ok', true,
+      'skipped', 'wheel has not been spun yet'
+    );
+  end if;
+
+  if v_room.wheel_spin_started_at is null then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'Wheel spin start time is missing'
+    );
+  end if;
+
+  if now() < v_room.wheel_spin_started_at + interval '5 seconds' then
+    return jsonb_build_object(
+      'ok', true,
+      'skipped', 'wheel is still spinning'
+    );
+  end if;
+
+  if v_room.current_player is null
+     or v_room.wheel_tied_amount is null then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'Missing auction data; cannot finalize'
+    );
+  end if;
+
+  v_player_id :=
+    (v_room.current_player->>'id')::int;
+
+  v_amount :=
+    v_room.wheel_tied_amount;
+
+  select *
+  into v_winner
+  from room_participants
+  where room_id = p_room_id
+    and user_id = v_room.wheel_winner_user_id
+  for update;
+
+  if not found then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'Winning manager is no longer in this room'
+    );
+  end if;
+
+  v_new_roster :=
+    coalesce(v_winner.roster, '[]'::jsonb)
+    ||
+    jsonb_build_array(
+      jsonb_build_object(
+        'id', v_player_id,
+        'name', v_room.current_player->>'name',
+        'rating',
+          (v_room.current_player->>'rating')::numeric,
+        'positions',
+          coalesce(
+            v_room.current_player->'positions',
+            '[]'::jsonb
+          ),
+        'cost', v_amount
+      )
+    );
+
+  update room_participants
+  set
+    budget = budget - v_amount,
+    roster = v_new_roster
+  where room_id = p_room_id
+    and user_id = v_room.wheel_winner_user_id;
+
+  v_all_bids :=
+    coalesce(
+      v_room.wheel_all_bids,
+      '[]'::jsonb
+    );
+
+  v_log_entry :=
+    jsonb_build_object(
+      'id',
+        v_player_id::text
+        || '_'
+        || extract(epoch from now())::bigint::text,
+
+      'playerName',
+        v_room.current_player->>'name',
+
+      'amount',
+        v_amount,
+
+      'winnerName',
+        v_winner.display_name,
+
+      'winnerUserId',
+        v_room.wheel_winner_user_id,
+
+      'wasWheelTiebreaker',
+        true
+    );
+
+  update rooms
+  set
+    drafted_player_ids =
+      drafted_player_ids || v_player_id,
+
+    draft_log =
+      array_prepend(
+        v_log_entry,
+        draft_log
+      ),
+
+    status = 'results',
+
+    results =
+      jsonb_build_object(
+        'playerName',
+          v_room.current_player->>'name',
+
+        'winnerName',
+          v_winner.display_name,
+
+        'winnerUserId',
+          v_room.wheel_winner_user_id,
+
+        'amount',
+          v_amount,
+
+        'allBids',
+          v_all_bids,
+
+        'wasCoinFlip',
+          false,
+
+        'wasWheelTiebreaker',
+          true
+      ),
+
+    wheel_candidates = null,
+    wheel_winner_user_id = null,
+    wheel_spin_started_at = null,
+    wheel_tied_amount = null,
+    wheel_all_bids = null,
+
+    tie_eligible_ids = null,
+    tie_redo_count = 0
+
+  where id = p_room_id
+    and status = 'tiebreaker_wheel';
+
+  return jsonb_build_object(
+    'ok', true,
+    'winnerUserId',
+      v_room.wheel_winner_user_id,
+    'amount',
+      v_amount
+  );
+end;
+$$;
+
+grant execute on function finalize_tiebreaker_wheel(uuid)
+to authenticated;

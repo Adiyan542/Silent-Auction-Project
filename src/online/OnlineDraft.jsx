@@ -12,6 +12,7 @@ import TradeActivity from './TradeActivity';
 import SoundBoard from './SoundBoard';
 import Chat from './Chat';
 import RedoAuctionButton from './RedoAuctionButton';
+import TieBreakerWheel from './TieBreakerWheel';
 
 
 const PANDORA_ELIGIBLE_AFTER = 12;
@@ -1166,6 +1167,18 @@ export default function OnlineDraft({ session, roomId, onExit }) {
     );
   }
 
+  if (room.status === 'tiebreaker_wheel') {
+    return (
+      <TieBreakerWheel
+        room={room}
+        roomId={roomId}
+        myId={myId}
+        isHost={isHost}
+        soundEnabled={soundEnabled}
+      />
+    );
+  }
+
   if (room.status === 'bidding') {
     const maxBid = getMaxBid(me);
     const slotsLeft = rosterSize - (me.roster?.length ?? 0);
@@ -1671,12 +1684,6 @@ export default function OnlineDraft({ session, roomId, onExit }) {
                       </span>
                     </p>
 
-
-                    {r.wasCoinFlip && (
-                      <p className="text-yellow-400/80 text-xs mb-4">
-                        Still tied after several redos — broken with a coin flip.
-                      </p>
-                    )}
 
                     {r.autoAwarded && (
                       <p className="text-blue-400/80 text-xs mb-4">
